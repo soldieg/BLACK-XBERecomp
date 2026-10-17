@@ -3,6 +3,8 @@ An unofficial native PC port of the original Xbox version of Black, with extende
 
 This port was created using the [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) tool.
 
+This repository is a community-maintained fork of [TGP482/BLACK-XBERecomp](https://github.com/TGP482/BLACK-XBERecomp). It is maintained for personal and community use, with the goal of keeping this fork current with selected upstream changes and community contributions. This fork currently carries five additional pull requests and is not an official release of the upstream project.
+
 > [!NOTE]
 > This project does not include any game assets. You must provide the files from your own legally acquired copy of the game to install or build.
 
@@ -10,6 +12,14 @@ This port was created using the [Xbox XBE Recomp](https://github.com/TGP482/Xbox
 - Put your game files in the `assets` folder. This can be an ISO, or the extracted data files, of the USA or Europe release.
 - Run `BLACK.exe`.
 - Recomp settings can be adjusted in the in-game options menu while the game is running, or through the Settings overlay, which is opened with F10 by default.
+- The release ZIP contains an empty `assets` folder as a destination; game files are not included and must come from your own legally acquired Xbox copy.
+
+### Languages and Subtitles
+- Open **Language** in the in-game settings and choose English, French, German, Italian, Spanish, Brazilian Portuguese, Bahasa Indonesia, or Russian.
+- The game checks the Windows display language on first launch. If it is supported, it selects it; otherwise English remains the fallback.
+- Language menus and subtitle packages are downloaded from [BLACK-SUBTITLES](https://github.com/soldieg/BLACK-SUBTITLES). An internet connection is needed to download or update them. Choose **Update Translations** in the Language menu to check the manifest and download all available language packages.
+- Changing the selected language prompts for a restart. Subtitle display can be enabled or disabled, with options for size, bold text, color, shadow, and background.
+- Downloaded files are stored in the `language` folder beside `BLACK.exe`. Translation packages are not bundled into the executable or release ZIP.
 <img width="1920" height="1080" alt="{5852D359-24A0-48C8-9319-07C3A619E355}" src="https://github.com/user-attachments/assets/e0156eb8-c1b5-49d9-ab93-3abb46bf5f47" />
 
 
@@ -20,7 +30,7 @@ This port was created using the [Xbox XBE Recomp](https://github.com/TGP482/Xbox
 - **Resolution** - Lists every mode your monitor reports and defaults to your desktop resolution, replacing the original 640x480 resolution.
 - **Render Resolution** - Renders the game at 20% to 200% of the output resolution, allowing supersampling or downscaling independent of the window size.
 - **Field of View** - Sets the horizontal field of view during gameplay from 45 to 100 degrees, with 70 being the game's default.
-- **Viewmodel Field of View** - Adjusts the first-person weapon and arms field of view from 45 to 100 degrees.
+- **Viewmodel Field of View** - Adjusts the first-person weapon and arms field of view from 45 to 100 degrees. The rendering changes also reduce weapon clipping at wider settings.
 - **Max Frame Rate** - Caps the frame rate to your monitor's refresh rate or a custom value, or removes the cap entirely, replacing the Xbox's 30 FPS limiter.
 - **V-Sync** - Reduces screen tearing.
 - **HDR Output** - Enables HDR10 output on displays with Windows HDR turned on, detected automatically. Highlights extend up to the display's peak brightness.
@@ -34,10 +44,17 @@ This port was created using the [Xbox XBE Recomp](https://github.com/TGP482/Xbox
 - **Draw Distance** - Increases the level of detail and draw distances past the game's values: 2x, 4x or 8x.
 - **Ambient Occlusion** - Adds screen space ambient occlusion, creating soft contact shadows where surfaces meet. Choose between SSAO and GTAO.
 - **Reload Blur** - Toggles the blur effect while reloading.
+- **Light Glow Alignment** - Adjusts the final glow composite so bright effects line up more closely with their light sources.
 
 ### Input
 - **Mouse and Keyboard** - Full keyboard and mouse support with raw input, adjustable sensitivity, inverted look and rebindable controls.
 - **Controller** - Controller with SDL3 support. 
+
+### Audio
+- **XAudio2 Output Queue** - Uses a deeper audio output queue to help reduce crackling.
+
+### Weapons
+- **Weapons Page** - Adds a page to the F10 settings panel for selecting any of the game's weapons in a level and filling ammunition. This is an optional testing and gameplay utility.
 
 ### General
 - **Skip Intro** - Skips the intro logos.
@@ -45,6 +62,13 @@ This port was created using the [Xbox XBE Recomp](https://github.com/TGP482/Xbox
 
 ### Miscellaneous
 - **Custom Menu Cursor** - Place a `cursor.png` (or `cursor.dds`) beside the exe to replace the Windows arrow in the game's menus.
+
+### Community Changes in This Fork
+- Runtime language selection, manifest-based language downloads and updates, translated game/recomp menus, cutscene subtitles, and subtitle display settings.
+- A deeper XAudio2 output queue to reduce audio crackling.
+- A weapons page in the F10 panel.
+- Field-of-view limits and rendering adjustments to reduce first-person weapon clipping.
+- A D3D12 light-glow alignment adjustment.
 
 ## System Requirements
 ### Minimum
@@ -66,7 +90,7 @@ This port was created using the [Xbox XBE Recomp](https://github.com/TGP482/Xbox
 ### 1. Clone the Repository
 Clone this repository using [Git](https://git-scm.com/).
 ```
-git clone https://github.com/TGP482/BLACK-XBERecomp.git
+git clone https://github.com/soldieg/BLACK-XBERecomp.git
 ```
 
 ### 2. Add the Required Game Files
