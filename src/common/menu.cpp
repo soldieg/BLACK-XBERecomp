@@ -274,7 +274,7 @@ void Changed(bool display) {
 enum RowId { kDisplayMode, kResolution, kRenderResolution, kMaxFps, kVsync, kFpsCounter, kAniso, kReloadBlur,
              kSkipIntros, kSensitivity, kInvertMouse, kWalkSpeed, kFov, kViewmodelFov, kHoldAim, kDrawDistance, kMsaa,
              kAmbientOcclusion, kAudioOutput, kHdrOutput, kMonitor, kLanguage, kSmaa,
-             kPauseOnFocusLoss, kFmvScale, kControllerHoldAim, kControllerSensitivity, kRumbleIntensity };
+             kPauseOnFocusLoss, kFmvScale, kControllerHoldAim, kControllerSensitivity, kRumbleIntensity, kMenuAnimations };
 constexpr int kLanguageChoiceBase = 1000;
 constexpr int kSubtitlesEnabled = 900, kSubtitleSettings = 901, kSubtitleSize = 902,
               kSubtitleBold = 903, kSubtitleColor = 904, kSubtitleShadow = 905, kSubtitlePreview = 906,
@@ -307,6 +307,7 @@ constexpr Row kSettingsRows[] = {
     {Kind::Value, kReloadBlur, "RELOAD BLUR"},
     {Kind::Heading, -1, "GENERAL"},
     {Kind::Value, kSkipIntros, "SKIP INTROS"},
+    {Kind::Value, kMenuAnimations, "MENU ANIMATIONS"},
     {Kind::Value, kPauseOnFocusLoss, "PAUSE ON FOCUS LOSS"},
     {Kind::Value, kLanguage, "LANGUAGE"},
     {Kind::Value, kAudioOutput, "AUDIO OUTPUT"},
@@ -345,6 +346,7 @@ bool* ToggleFlag(Settings& s, int id) {
         case kReloadBlur: return &o.reload_blur;
         case kSmaa: return &o.smaa;
         case kSkipIntros: return &o.skip_intros;
+        case kMenuAnimations: return &o.menu_animations;
         case kPauseOnFocusLoss: return &o.pause_on_focus_loss;
         case kInvertMouse: return &o.invert_mouse;
         case kHoldAim: return &o.hold_aim;
@@ -528,8 +530,8 @@ void StepInputRow(int id, int step, char (&text)[64]) {
             StepSensitivity(o.controller_sensitivity, step, text);
             break;
         case kRumbleIntensity:
-            // 0% to 200% in steps of 10
-            if (step) o.rumble_intensity = uint32_t(StepRange(int(o.rumble_intensity), 0, 200, 10, step));
+            // 10% to 200% in steps of 10
+            if (step) o.rumble_intensity = uint32_t(StepRange(int(o.rumble_intensity), 10, 200, 10, step));
             std::snprintf(text, sizeof(text), "%u%%", o.rumble_intensity);
             break;
         case kWalkSpeed:
