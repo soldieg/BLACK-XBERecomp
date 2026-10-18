@@ -2,11 +2,13 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <string>
 #include <thread>
 
 #include "app/app.h"
 #include "common/mouse_keyboard.h"
 #include "common/options.h"
+#include "common/subtitles.h"
 #include "core/input.h"
 #include "game/layout.h"
 #include "xdk/d3d8.h"
@@ -511,7 +513,7 @@ void ShardStep(X86Context& ctx, uint8_t*) {
 
 // LOD and draw distances reach this many times farther: each compare sees a distance that much shorter or a
 // limit that much longer. Characters, props, pickups, ground cover, particles and bullet holes
-static float Reach() { return float(std::clamp(game::Opt().draw_distance, 1u, 8u)); }
+static float Reach() { return float(std::clamp(game::Opt().draw_distance, 1u, 16u)); }
 void DistanceShorter(X86Context& ctx, uint8_t*) { ctx.xmm[0].f[0] /= Reach(); }
 void DistanceShorterSquared(X86Context& ctx, uint8_t*) { ctx.xmm[0].f[0] /= Reach() * Reach(); }
 void LimitLonger(X86Context& ctx, uint8_t*) { ctx.xmm[0].f[0] *= Reach(); }
@@ -603,6 +605,11 @@ void SkipVideo(X86Context&, uint8_t*) {
     uint32_t player = game_object + kFrontEnd + kFilmPlayer;
     uint32_t film = R32(game_object + kCurrentFilm);
     uint32_t state = R32(player + kFilmState);
+    const std::string movie_name = ReadCString(player + 0x84, 8);
+    std::string movie_stem = movie_name.size() >= 4 ? movie_name.substr(0, 4) : std::string{};
+    if (!movie_stem.empty() && movie_stem.back() == '.') movie_stem.pop_back();
+    const bool movie_active = film < kFilms && state >= 4 && state <= kFilmPlaying && R32(player) != 0;
+    app::UpdateSubtitleSession(film, R32(player), movie_stem, movie_active);
     bool background = film < kFilms && G<uint8_t>(kFilmTable + film * kFilmEntry + kFilmBehindMenu);
     if (pressed) LOGI("film %u: press in state %X, flags %X", film, state, R32(player + kFilmFlags));
     // a film keeps the frame time of its start: its frame length, and its clock's step

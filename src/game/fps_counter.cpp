@@ -4,12 +4,16 @@
 #include <cstdio>
 #include <cstring>
 #include <optional>
+#include <string_view>
+#include <vector>
 
 #include "app/app.h"
 #include "common/aspect.h"
 #include "common/options.h"
 #include "game/flash.h"
 #include "game/layout.h"
+#include "common/subtitles.h"
+#include "common/subtitles_data.h"
 #include "xdk/hle.h"
 #include "xdk/layout.h"
 
@@ -68,6 +72,12 @@ float TextWidth(uint32_t font, const char* text) {
     return advance * G<float>(font + kFontScale) * kSize;
 }
 
+float TextWidth(uint32_t font, const std::vector<uint16_t>& text) {
+    float advance = 0;
+    for (uint16_t code : text) advance += G<float>(Glyph(font, code) + kGlyphAdvance);
+    return advance * G<float>(font + kFontScale) * kSize * float(game::Opt().subtitle_size) / 100.0f;
+}
+
 // x and y in lines of a 480 frame from the output's top left
 void DrawText(X86Context& ctx, uint32_t font, const View& view, const char* text, float x, float y, bool shadow) {
     static const uint32_t block = mem::AllocSystem(0x60);
@@ -83,6 +93,73 @@ void DrawText(X86Context& ctx, uint32_t font, const View& view, const char* text
         CallGuest(ctx, kText, {font, chars, std::bit_cast<uint32_t>(px), std::bit_cast<uint32_t>(py),
                                std::bit_cast<uint32_t>(kSize * view.unit), colour});
     }
+}
+
+void DrawCaptionLine(X86Context& ctx, uint32_t font, const View& view,
+                     const std::vector<uint16_t>& text, float x, float y, bool bold,
+                     uint32_t colour, uint32_t shadow) {
+    if (text.empty()) return;
+    static const uint32_t block = mem::AllocSystem(0x1000);
+    const uint32_t rgba = block;
+    const uint32_t chars = block + 0x10;
+    const size_t count = std::min<size_t>(text.size(), 500);
+    for (size_t i = 0; i <= count; ++i) G<uint16_t>(chars + i * 2) = i < count ? text[i] : 0;
+    const float scale = float(game::Opt().subtitle_size) / 100.0f;
+    const float native_size = kSize * scale;
+    const float px = x * view.unit * view.narrow;
+    const float py = y * view.unit;
+    const float shadow_offset = shadow == 2 ? 1.5f : shadow == 1 ? 0.75f : 0.0f;
+    auto draw = [&](float dx, float dy, float r, float g, float b, float a) {
+        G<float>(rgba) = r; G<float>(rgba + 4) = g; G<float>(rgba + 8) = b; G<float>(rgba + 12) = a;
+        CallGuest(ctx, kText, {font, chars, std::bit_cast<uint32_t>(px + dx * view.unit),
+            std::bit_cast<uint32_t>(py + dy * view.unit), std::bit_cast<uint32_t>(native_size * view.unit), rgba});
+    };
+    if (shadow_offset > 0) draw(shadow_offset, shadow_offset, 0, 0, 0, 1);
+    const float r = colour == 1 ? 1.0f : 1.0f;
+    const float g = colour == 1 ? 0.88f : 1.0f;
+    const float b = colour == 1 ? 0.38f : 1.0f;
+    draw(0, 0, r, g, b, 1);
+    if (bold) draw(0.35f, 0, r, g, b, 1);
+}
+
+std::vector<std::vector<uint16_t>> WrapCaption(uint32_t font, std::string_view utf8, float max_width) {
+    const auto decoded = subtitles::DecodeUtf8(utf8);
+    std::vector<std::vector<uint16_t>> lines;
+    std::vector<uint16_t> line, word;
+    auto append_word = [&] {
+        if (word.empty()) return;
+        if (!line.empty()) line.push_back(' ');
+        for (uint16_t code : word) {
+            line.push_back(code);
+            if (line.size() > 1 && TextWidth(font, line) > max_width) {
+                const uint16_t last = line.back();
+                line.pop_back();
+                if (!line.empty()) lines.push_back(std::move(line));
+                line.clear();
+                line.push_back(last);
+            }
+        }
+        word.clear();
+    };
+    auto flush_word = [&] {
+        if (word.empty()) return;
+        auto candidate = line;
+        if (!candidate.empty()) candidate.push_back(' ');
+        candidate.insert(candidate.end(), word.begin(), word.end());
+        if (!line.empty() && TextWidth(font, candidate) > max_width) {
+            lines.push_back(std::move(line));
+            line.clear();
+        }
+        append_word();
+    };
+    for (uint16_t code : decoded) {
+        if (code == '\n') { flush_word(); lines.push_back(std::move(line)); line.clear(); }
+        else if (code == ' ' || code == '\t') flush_word();
+        else word.push_back(code);
+    }
+    flush_word();
+    if (!line.empty()) lines.push_back(std::move(line));
+    return lines;
 }
 
 const TitlePage* CurrentTitlePage() {
@@ -132,10 +209,12 @@ void DrawOverlay(X86Context& ctx, uint8_t*) {
     float w = float(R32(viewport + kViewportWidth));
     float h = float(R32(viewport + kViewportHeight));
     bool fps = game::Opt().fps_counter;
+    std::string caption = game::Opt().subtitles_enabled ? app::CurrentSubtitle() : std::string{};
+    const app::SubtitlePreview preview = app::CurrentSubtitlePreview();
     const TitlePage* title = CurrentTitlePage();
     std::optional<float> slide = title ? LegendSlide(*title) : std::nullopt;
     bool watermark = slide.has_value();
-    if (!(fps || watermark) || !font || !(h > 0)) return;
+    if (!(fps || watermark || !caption.empty() || (preview.active && !preview.text.empty())) || !font || !(h > 0)) return;
     View view{h / 480, w / h / game::Aspect()};
     float& width = G<float>(font + kFontScale);
     float game_width = width;
@@ -149,6 +228,26 @@ void DrawOverlay(X86Context& ctx, uint8_t*) {
         DrawText(ctx, font, view, text, kMargin, kMargin, true);
     }
     if (watermark) DrawText(ctx, font, view, kWatermark, watermark_x, kWatermarkTop, false);
+    if (!caption.empty()) {
+        const float output_width = game::Aspect() * 480.0f;
+        const float max_width = output_width * 0.82f;
+        const auto lines = WrapCaption(font, caption, max_width);
+        const float line_height = kSize * float(game::Opt().subtitle_size) / 100.0f * 1.35f;
+        const float bottom = 480.0f * 0.91f;
+        const float first_y = bottom - line_height * float(lines.size());
+        for (size_t i = 0; i < lines.size(); ++i)
+            DrawCaptionLine(ctx, font, view, lines[i], (output_width - TextWidth(font, lines[i])) * 0.5f,
+                            first_y + line_height * float(i), game::Opt().subtitle_bold,
+                            game::Opt().subtitle_color, game::Opt().subtitle_shadow);
+    }
+    if (preview.active && !preview.text.empty()) {
+        const auto lines = WrapCaption(font, preview.text, output_width * 0.82f);
+        const float line_height = kSize * float(game::Opt().subtitle_size) / 100.0f * 1.35f;
+        for (size_t i = 0; i < lines.size(); ++i)
+            DrawCaptionLine(ctx, font, view, lines[i], preview.x,
+                            preview.y + line_height * float(i), game::Opt().subtitle_bold,
+                            game::Opt().subtitle_color, game::Opt().subtitle_shadow);
+    }
     width = game_width;
     if (R32(kQuads)) CallGuest(ctx, kFlush, {});
     CallGuest(ctx, kEnd, {});

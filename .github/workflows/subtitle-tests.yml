@@ -1,0 +1,25 @@
+name: Subtitle tests
+
+on:
+  push:
+    paths:
+      - "src/common/subtitle*"
+      - "tests/**"
+      - ".github/workflows/subtitle-tests.yml"
+  pull_request:
+    paths:
+      - "src/common/subtitle*"
+      - "tests/**"
+      - ".github/workflows/subtitle-tests.yml"
+
+jobs:
+  subtitle-tests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure focused subtitle tests
+        run: cmake -S tests -B out/subtitle-tests
+      - name: Build focused subtitle tests
+        run: cmake --build out/subtitle-tests --config Release
+      - name: Run focused subtitle tests
+        run: ctest --test-dir out/subtitle-tests --build-config Release --output-on-failure

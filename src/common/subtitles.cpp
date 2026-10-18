@@ -1,9 +1,8 @@
-#include <algorithm>
 #include <chrono>
-#include <cstdio>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -11,52 +10,27 @@
 #include "app/app.h"
 #include "common/options.h"
 #include "common/subtitles.h"
+#include "common/subtitles_data.h"
 #include "core/log.h"
 #include "game/layout.h"
 #include "xdk/hle.h"
 
 using namespace kernel;
-using namespace layout;
 
 namespace {
-struct Cue { int64_t start, end; std::string text; };
 std::mutex g_lock;
 std::string g_name;
-std::vector<Cue> g_cues;
-std::chrono::steady_clock::time_point g_started;
+std::vector<subtitles::Cue> g_cues;
+subtitles::SessionClock g_clock;
 std::chrono::steady_clock::time_point g_last_load;
+app::SubtitlePreview g_preview;
 
-int64_t Timestamp(const std::string& s) {
-    int h = 0, m = 0, sec = 0, ms = 0;
-    if (std::sscanf(s.c_str(), "%d:%d:%d,%d", &h, &m, &sec, &ms) != 4) return -1;
-    return ((int64_t(h) * 60 + m) * 60 + sec) * 1000 + ms;
-}
-
-std::vector<Cue> ReadSrt(const std::filesystem::path& path) {
+std::vector<subtitles::Cue> ReadSrt(const std::filesystem::path& path) {
     std::ifstream file(path, std::ios::binary);
-    std::vector<Cue> cues;
-    std::string line;
-    auto read_line = [&]() {
-        if (!std::getline(file, line)) return false;
-        // SRT packages may use CRLF. getline removes '\n' but leaves '\r',
-        // which would make blank cue separators look like subtitle text.
-        if (!line.empty() && line.back() == '\r') line.pop_back();
-        return true;
-    };
-    while (read_line()) {
-        auto arrow = line.find(" --> ");
-        if (arrow == std::string::npos) continue;
-        Cue cue{Timestamp(line.substr(0, arrow)), Timestamp(line.substr(arrow + 5)), {}};
-        if (cue.start < 0 || cue.end <= cue.start) continue;
-        while (read_line() && !line.empty()) {
-            if (!cue.text.empty()) cue.text += '\n';
-            cue.text += line;
-        }
-        if (!cue.text.empty()) cues.push_back(std::move(cue));
-    }
-    return cues;
+    if (!file) return {};
+    const std::string contents{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
+    return subtitles::ParseSrt(contents);
 }
-
 std::string Locale() {
     const auto& language = game::BootLanguage();
     if (language == "esp") return "es";
@@ -67,43 +41,66 @@ std::string Locale() {
 }
 }
 
+void app::SetSubtitlePreview(std::string text, float x, float y, bool active) {
+    std::lock_guard guard(g_lock);
+    g_preview = {std::move(text), x, y, active};
+}
+app::SubtitlePreview app::CurrentSubtitlePreview() {
+    std::lock_guard guard(g_lock);
+    return g_preview;
+}
+void app::UpdateSubtitleSession(uint32_t film, uint32_t movie, std::string_view stem, bool active) {
+    const std::string identity = active && !stem.empty()
+        ? Locale() + "/" + std::to_string(film) + "/" + std::string(stem) + "/" + std::to_string(movie)
+        : std::string{};
+    std::lock_guard guard(g_lock);
+    if (g_clock.Update(identity, active, std::chrono::steady_clock::now())) {
+        g_name.clear();
+        g_cues.clear();
+        g_last_load = {};
+    }
+}
+
 std::string app::CurrentSubtitle() {
     if (!game::Opt().subtitles_enabled) return {};
-    uint32_t game = R32(layout::kGame);
-    if (!game) return {};
-    uint32_t film = R32(game + kCurrentFilm);
-    uint32_t player = game + kFrontEnd + kFilmPlayer;
+    const uint32_t game_object = R32(layout::kGame);
+    if (!game_object) return {};
+    const uint32_t film = R32(game_object + layout::kCurrentFilm);
+    const uint32_t player = game_object + layout::kFrontEnd + layout::kFilmPlayer;
     constexpr uint32_t kFilmName = 0x84, kFilmState = 0x1A8, kFilmPlaying = 0x1C;
-    uint32_t state = R32(player + kFilmState);
-    if (film >= kFilms || state < 4 || state > kFilmPlaying) {
+    const uint32_t state = R32(player + kFilmState);
+    if (film >= layout::kFilms || state < 4 || state > kFilmPlaying) {
         std::lock_guard guard(g_lock);
-        g_name.clear();
+        g_name.clear(); g_cues.clear();
+        g_clock.Update({}, false, std::chrono::steady_clock::now());
         return {};
     }
-    std::string name = ReadCString(player + kFilmName, 8);
+    const std::string name = ReadCString(player + kFilmName, 8);
     if (name.size() < 4) return {};
     std::string stem = name.substr(0, 4);
     if (stem.back() == '.') stem.pop_back();
-    const std::string identity = Locale() + "/" + std::to_string(film) + "/" + stem;
+    const uint32_t movie = R32(player);
+    const std::string locale = Locale();
+    const std::string identity = locale + "/" + std::to_string(film) + "/" + stem + "/" + std::to_string(movie);
     std::lock_guard guard(g_lock);
-    if (identity != g_name) {
-        g_name = identity;
-        g_cues.clear();
-        g_started = std::chrono::steady_clock::now();
-        g_last_load = {};
-    }
     const auto now = std::chrono::steady_clock::now();
+    if (identity != g_name) {
+        g_name = identity; g_cues.clear(); g_last_load = {};
+        g_clock.Update(identity, true, now);
+    } else {
+        g_clock.Update(identity, true, now);
+    }
     if (g_cues.empty() && (g_last_load.time_since_epoch().count() == 0 || now - g_last_load >= std::chrono::seconds(1))) {
         g_last_load = now;
-        auto path = app::ExeDir() / "language" / Locale() / "Subtitles" / (stem + ".srt");
+        auto path = app::ExeDir() / "language" / locale / "Subtitles" / (stem + ".srt");
         g_cues = ReadSrt(path);
-        if (g_cues.empty() && Locale() != "en-US") {
+        if (g_cues.empty() && locale != "en-US") {
             path = app::ExeDir() / "language" / "en-US" / "Subtitles" / (stem + ".srt");
             g_cues = ReadSrt(path);
         }
-        if (!g_cues.empty()) LOGR("subtitles: loaded %zu cues for %s (%s)", g_cues.size(), stem.c_str(), Locale().c_str());
+        if (!g_cues.empty()) LOGR("subtitles: loaded %zu cues for %s (%s)", g_cues.size(), stem.c_str(), locale.c_str());
     }
-    int64_t elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - g_started).count();
-    auto cue = std::find_if(g_cues.begin(), g_cues.end(), [elapsed](const Cue& c) { return elapsed >= c.start && elapsed <= c.end; });
-    return cue == g_cues.end() ? std::string() : cue->text;
+    const auto elapsed = g_clock.Elapsed(now);
+    const auto* cue = elapsed ? subtitles::CueAt(g_cues, *elapsed) : nullptr;
+    return cue ? cue->text : std::string{};
 }

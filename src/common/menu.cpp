@@ -105,8 +105,8 @@ constexpr std::pair<ImGuiCol, ImVec4> kPanelColors[] = {
 
 constexpr uint32_t kAnisoValues[] = {0, 2, 4, 8, 16};
 const char* const kAnisoNames[] = {"GAME DEFAULT", "2x", "4x", "8x", "16x"};
-constexpr uint32_t kDistances[] = {1, 2, 4, 8};
-const char* const kDistanceNames[] = {"GAME DEFAULT", "2x", "4x", "8x"};
+constexpr uint32_t kDistances[] = {1, 2, 4, 8, 12, 16};
+const char* const kDistanceNames[] = {"GAME DEFAULT", "2x", "4x", "8x", "12x", "16x"};
 constexpr uint32_t kMsaaValues[] = {0, 2, 4, 8};
 const char* const kMsaaNames[] = {"OFF", "2x", "4x", "8x"};
 constexpr uint32_t kAoValues[] = {0, 1, 2};
@@ -1045,54 +1045,6 @@ void DrawUi(double fps) {
     io.KeyRepeatRate = 0.1f;  // held arrows step ten times a second, ImGui's twenty is too fast for settings
     // scale the font with the output height
     io.FontGlobalScale = std::max(1.0f, io.DisplaySize.y / 720.0f);
-    std::string subtitle = CurrentSubtitle();
-    if (!subtitle.empty()) {
-        ImVec2 size = io.DisplaySize;
-        if (!std::isfinite(size.x) || !std::isfinite(size.y) || size.x < 320.0f || size.y < 240.0f) {
-            const Mode output = app::Output();
-            size = ImVec2(float(output.width), float(output.height));
-        }
-        // Use the game's active output aspect so the subtitle stays within the displayed frame.
-        const float film_aspect = game::Aspect();
-        const float picture_w = std::min(size.x, size.y * film_aspect);
-        const float picture_h = picture_w / film_aspect;
-        const float picture_x = (size.x - picture_w) * 0.5f;
-        const float picture_y = (size.y - picture_h) * 0.5f;
-        const float font_size = ImGui::GetFontSize() * 1.20f * float(game::Opt().subtitle_size) / 100.0f;
-        const float wrap = std::max(1.0f, picture_w * 0.88f);
-        const ImU32 color = game::Opt().subtitle_color == 1 ? IM_COL32(255, 224, 96, 255)
-                                                            : IM_COL32(255, 255, 255, 255);
-        const int shadow = int(std::min(game::Opt().subtitle_shadow, 2u));
-        ImDrawList* draw = ImGui::GetForegroundDrawList();
-        auto draw_line = [&](const std::string& text, ImVec2 pos) {
-            if (text.empty()) return;
-            const ImVec2 text_size = ImGui::GetFont()->CalcTextSizeA(font_size, wrap, wrap, text.c_str());
-            constexpr float pad_x = 18.0f, pad_y = 10.0f;
-            if (game::Opt().subtitle_background)
-                draw->AddRectFilled(ImVec2(pos.x - pad_x, pos.y - pad_y),
-                                    ImVec2(pos.x + text_size.x + pad_x, pos.y + text_size.y + pad_y),
-                                    IM_COL32(0, 0, 0, 190), 6.0f);
-            if (shadow) {
-                const float offset = shadow == 1 ? 1.5f : 3.0f;
-                const ImU32 shadow_color = IM_COL32(0, 0, 0, shadow == 1 ? 180 : 235);
-                draw->AddText(ImGui::GetFont(), font_size, ImVec2(pos.x + offset, pos.y + offset), shadow_color,
-                              text.c_str(), nullptr, wrap);
-            }
-            if (game::Opt().subtitle_bold) {
-                const float weight = std::max(0.65f, font_size / 24.0f);
-                draw->AddText(ImGui::GetFont(), font_size, ImVec2(pos.x + weight, pos.y), color,
-                              text.c_str(), nullptr, wrap);
-                draw->AddText(ImGui::GetFont(), font_size, ImVec2(pos.x, pos.y + weight), color,
-                              text.c_str(), nullptr, wrap);
-            }
-            draw->AddText(ImGui::GetFont(), font_size, pos, color, text.c_str(), nullptr, wrap);
-        };
-        if (!subtitle.empty()) {
-            const ImVec2 text_size = ImGui::GetFont()->CalcTextSizeA(font_size, wrap, wrap, subtitle.c_str());
-            draw_line(subtitle, ImVec2(picture_x + (picture_w - text_size.x) * 0.5f,
-                                       picture_y + picture_h * 0.86f - text_size.y));
-        }
-    }
     if (MenuOpen()) {
         PollCapture();
         DrawPanel();
