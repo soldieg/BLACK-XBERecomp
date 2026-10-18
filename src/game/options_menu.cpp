@@ -10,8 +10,10 @@
 #include <vector>
 
 #include "common/menu.h"
+#include "common/aspect.h"
 #include "common/mouse_keyboard.h"
 #include "common/options.h"
+#include "common/subtitles.h"
 #include "common/translations.h"
 #include "core/log.h"
 #include "game/flash.h"
@@ -630,7 +632,7 @@ void UpdateTexts(const Page& p) {
         std::memcpy(HostPtr(to + flash::kClipMatrix), HostPtr(from + flash::kClipMatrix), kMatrixAndColours);
     }
     if (p.mode == kSubtitleSettingsMode && p.pinned_row && p.slots)
-        Write(g_fields[kValue + p.slots - 1], app::Ui("Subtitle test", false));
+        Write(g_fields[kValue + p.slots - 1], "");
 }
 
 // Render the preview with the same Flash text field and dark selector box as the game's own menu.
@@ -671,7 +673,7 @@ void UpdateSubtitlePreview(X86Context& ctx, Page& p) {
     G<float>(box + flash::kClipScaleX) = (text_width + pad_x * 2.0f) / box_width;
     G<float>(box + flash::kClipScaleY) = (kTextHeight * size * p.host->scale + pad_y * 2.0f) / p.host->pitch;
 
-    // Convert the preview point to the selector's parent space, stopping before Main.
+    // Keep the backing selector in Main-local space, matching the menu's own row coordinates.
     float x = kTextLeft + Measure(font, before_r) * kTextHeight;
     float y = p.host->pitch;
     for (uint32_t clip = p.name[p.slots - 1], left = 0;
@@ -689,8 +691,23 @@ void UpdateSubtitlePreview(X86Context& ctx, Page& p) {
     G<float>(background + 0x14) = 0.0f;
     G<float>(background + flash::kClipX) = x - pad_x - kBarLeft;
     G<float>(background + flash::kClipY) = y - pad_y;
+    // Native captions use viewport coordinates based on a 480-line frame. Continue through Main
+    // and the remaining Flash ancestors, then convert the 640x480 stage's X to that basis.
+    float screen_x = x, screen_y = y;
+    for (uint32_t clip = main, left = 0; clip && left < 32; clip = R32(clip + flash::kClipParent), left++) {
+        const float a = G<float>(clip + 0x0C), b = G<float>(clip + 0x10);
+        const float c = G<float>(clip + 0x14), d = G<float>(clip + 0x18);
+        const float tx = G<float>(clip + 0x1C), ty = G<float>(clip + 0x20);
+        const float transformed_x = a * screen_x + c * screen_y + tx;
+        screen_y = b * screen_x + d * screen_y + ty;
+        screen_x = transformed_x;
+    }
+    screen_x *= game::Aspect() * 480.0f / 640.0f;
+    app::SetSubtitlePreview(app::Ui("Subtitle test", false), screen_x, screen_y, true);
     G<float>(p.value[p.slots - 1] + flash::kClipScaleX) = p.host->scale * size;
     G<float>(p.value[p.slots - 1] + flash::kClipScaleY) = p.host->scale * size;
+    if (!game::Opt().subtitle_background) Hide(box);
+    else W32(box + flash::kClipFlags, R32(box + flash::kClipFlags) | flash::kClipShown);
     W32(background + flash::kClipFlags, R32(background + flash::kClipFlags) | flash::kClipShown);
 }
 
