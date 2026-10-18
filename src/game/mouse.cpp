@@ -28,18 +28,63 @@ constexpr float kDegrees = 0.05f;
 // the player's controller: yaw positive left, pitch positive down, in degrees
 constexpr uint32_t kControllerYaw = 0x18;
 constexpr uint32_t kControllerPitch = 0x1C;
+constexpr uint32_t kControllerLookHorizontal = 0xD8;
+constexpr uint32_t kControllerLookVertical = 0xDC;
+constexpr uint32_t kControllerYawSpeed = 0xB8;
+constexpr uint32_t kControllerPitchSpeed = 0xBC;
+constexpr uint32_t kControllerLookCurve = 0xC8;
 constexpr uint32_t kControllerAimWanted = 0x45;
 constexpr uint32_t kControllerAimHeld = 0x104;
+
+// Mouse angle applied this frame; consumed after the game's view update to feed native weapon sway.
+static float g_mouse_yaw_step;
+static float g_mouse_pitch_step;
+static float g_mouse_sway_horizontal;
+static float g_mouse_sway_vertical;
 
 // esi the player's controller, xmm2 the zoom scale. The game adds the stick, clamps the pitch and wraps the yaw
 // after this.
 void MouseLook(X86Context& ctx, uint8_t*) {
+    g_mouse_yaw_step = 0;
+    g_mouse_pitch_step = 0;
     float dx;
     float dy;
     if (!input::TakeMouse(dx, dy)) return;
     float scale = kDegrees * ctx.xmm[2].f[0];
-    G<float>(ctx.esi + kControllerYaw) -= std::remainder(dx * scale, 360.0f);
-    G<float>(ctx.esi + kControllerPitch) += dy * scale;
+    g_mouse_yaw_step = -std::remainder(dx * scale, 360.0f);
+    g_mouse_pitch_step = dy * scale;
+    G<float>(ctx.esi + kControllerYaw) += g_mouse_yaw_step;
+    G<float>(ctx.esi + kControllerPitch) += g_mouse_pitch_step;
+}
+
+// Called after the game integrates the view. Rebuild a bounded virtual stick deflection from this
+// frame's mouse angle so the existing weapon sway follows mouse aiming as it already follows a pad.
+void MouseSway(X86Context& ctx, uint8_t*) {
+    const uint32_t controller = ctx.ebx;
+    const uint32_t world = R32(kWorld);
+    const float dt = world ? G<float>(world + kTimerDt) : 0.0f;
+    const float curve_value = G<float>(controller + kControllerLookCurve);
+    const float curve = std::isfinite(curve_value) && curve_value > 0.1f ? curve_value : 1.0f;
+
+    auto deflection = [dt, curve](float degrees, float speed) {
+        if (!(dt > 0.0f) || !(speed > 0.0f) || !std::isfinite(degrees) || !std::isfinite(speed)) return 0.0f;
+        const float rate = std::clamp(std::abs(degrees) / (speed * dt), 0.0f, 1.0f);
+        const float shaped = std::pow(rate, 1.0f / curve);
+        return std::copysign(shaped, degrees);
+    };
+
+    const float horizontal = deflection(g_mouse_yaw_step, G<float>(controller + kControllerYawSpeed));
+    const float vertical = -deflection(g_mouse_pitch_step, G<float>(controller + kControllerPitchSpeed));
+    const float blend = dt > 0.0f ? 1.0f - std::exp(-dt / 0.05f) : 1.0f;
+    g_mouse_sway_horizontal += (horizontal - g_mouse_sway_horizontal) * blend;
+    g_mouse_sway_vertical += (vertical - g_mouse_sway_vertical) * blend;
+    g_mouse_yaw_step = 0;
+    g_mouse_pitch_step = 0;
+
+    float& look_horizontal = G<float>(controller + kControllerLookHorizontal);
+    float& look_vertical = G<float>(controller + kControllerLookVertical);
+    look_horizontal = std::clamp(look_horizontal + g_mouse_sway_horizontal, -1.0f, 1.0f);
+    look_vertical = std::clamp(look_vertical + g_mouse_sway_vertical, -1.0f, 1.0f);
 }
 
 // false with the keyboard or mouse used last: no pull of the view to a target, no shots bent to one
