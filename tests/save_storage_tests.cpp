@@ -140,6 +140,34 @@ bool TestRejectsTruncatedProfile() {
     return WriteBytes(profile, bytes) && !game::save_storage::ValidateProfile(profile, error) && !error.empty();
 }
 
+bool TestIgnoresUserFoldersWithoutProfiles() {
+    TempDir temp;
+    const fs::path hdd = temp.path / "hdd";
+    fs::create_directories(hdd / "E" / "UDATA" / "45410083" / "12D617B01AB2");
+    std::vector<fs::path> profiles;
+    std::string error;
+    if (!game::save_storage::FindProfileFiles(hdd, profiles, error)) {
+        std::cerr << error << '\n';
+        return false;
+    }
+    return profiles.empty();
+}
+
+bool TestFindsExistingProfileAlongsideEmptyUserFolders() {
+    TempDir temp;
+    const fs::path hdd = temp.path / "hdd";
+    const fs::path profile = hdd / "E" / "UDATA" / "45410083" / "1AAF1A0557B7" / "Profile";
+    fs::create_directories(hdd / "E" / "UDATA" / "45410083" / "12D617B01AB2");
+    if (!WriteBytes(profile, ValidProfileBytes())) return false;
+    std::vector<fs::path> profiles;
+    std::string error;
+    if (!game::save_storage::FindProfileFiles(hdd, profiles, error)) {
+        std::cerr << error << '\n';
+        return false;
+    }
+    return profiles.size() == 1 && profiles.front() == profile;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -160,6 +188,8 @@ int main(int argc, char** argv) {
         std::pair{"accepts structurally valid profiles", TestAcceptsStructurallyValidProfile},
         std::pair{"rejects a corrupt profile checksum", TestRejectsProfileWithBadSlotChecksum},
         std::pair{"rejects a truncated profile", TestRejectsTruncatedProfile},
+        std::pair{"ignores normal user folders without Profile files", TestIgnoresUserFoldersWithoutProfiles},
+        std::pair{"finds a real Profile while ignoring empty user folders", TestFindsExistingProfileAlongsideEmptyUserFolders},
     };
     for (const auto& [name, run] : tests) {
         if (!run()) {

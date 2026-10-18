@@ -1,6 +1,7 @@
 #include "common/save_storage.h"
 
 #include <array>
+#include <algorithm>
 #include <fstream>
 
 namespace game::save_storage {
@@ -170,6 +171,51 @@ bool ValidateProfile(const std::filesystem::path& profile, std::string& error) {
                 return false;
             }
         }
+    }
+    return true;
+}
+
+bool FindProfileFiles(const std::filesystem::path& hdd, std::vector<std::filesystem::path>& profiles,
+                      std::string& error) {
+    namespace fs = std::filesystem;
+    profiles.clear();
+    error.clear();
+    const fs::path title = hdd / "E" / "UDATA" / "45410083";
+    std::error_code ec;
+    if (!fs::is_directory(title, ec)) {
+        if (ec) {
+            if (ec == std::errc::no_such_file_or_directory) return true;
+            error = "Could not inspect title save folder " + title.string() + ": " + ec.message();
+            return false;
+        }
+        return true;
+    }
+    fs::directory_iterator user(title, ec), end;
+    if (ec) {
+        error = "Could not enumerate title save folder " + title.string() + ": " + ec.message();
+        return false;
+    }
+    for (; user != end; user.increment(ec)) {
+        if (ec) {
+            error = "Could not enumerate title save folder " + title.string() + ": " + ec.message();
+            return false;
+        }
+        std::error_code entry_error;
+        if (!user->is_directory(entry_error)) {
+            if (entry_error) {
+                error = "Could not inspect save user folder " + user->path().string() + ": " + entry_error.message();
+                return false;
+            }
+            continue;
+        }
+        const fs::path profile = user->path() / "Profile";
+        const fs::file_status status = fs::symlink_status(profile, entry_error);
+        if (entry_error) {
+            if (entry_error == std::errc::no_such_file_or_directory) continue;
+            error = "Could not inspect save Profile " + profile.string() + ": " + entry_error.message();
+            return false;
+        }
+        if (fs::is_regular_file(status) || fs::is_symlink(status)) profiles.push_back(profile);
     }
     return true;
 }

@@ -13,6 +13,7 @@
 #include "game/flash.h"
 #include "game/layout.h"
 #include "common/subtitles.h"
+#include "common/subtitle_layout.h"
 #include "common/subtitles_data.h"
 #include "xdk/hle.h"
 #include "xdk/layout.h"
@@ -22,6 +23,8 @@ using namespace layout;
 using flash::kClipNext;
 using flash::kClipX;
 using flash::kClipY;
+
+namespace d3d { void DrawSolidRect(float left, float top, float right, float bottom, uint8_t alpha); }
 
 namespace {
 
@@ -39,9 +42,12 @@ constexpr uint32_t kFont = 0x2F433C;  // the small font
 constexpr float kSize = 15;
 constexpr float kMargin = 8;
 constexpr float kGrey = 186 / 255.0f;  // the HUD's text
+constexpr float kSubtitlePanelPaddingX = 9.0f;
+constexpr float kSubtitlePanelPaddingY = 5.0f;
+constexpr uint8_t kSubtitlePanelAlpha = 166;
 
 // as SCDA: at rest it ends 80 in from the right, on the row of the menu's button legend
-constexpr char kWatermark[] = "XBE Recomp V1";
+constexpr char kWatermark[] = "XBE Recomp V2";
 constexpr float kWatermarkRight = 80;
 constexpr float kWatermarkTop = 427;
 // the page's Main slides its legend in from the right and back out; x is the confirm prompt's at rest (frame 29)
@@ -65,6 +71,11 @@ uint32_t Glyph(uint32_t font, uint16_t code) {
     return glyph;
 }
 
+bool PortugueseSubtitleFont() {
+    const std::string& language = game::BootLanguage();
+    return language == "pt-BR" || language == "pt" || language == "por";
+}
+
 // in lines of a 480 frame, at kSize
 float TextWidth(uint32_t font, const char* text) {
     float advance = 0;
@@ -72,10 +83,14 @@ float TextWidth(uint32_t font, const char* text) {
     return advance * G<float>(font + kFontScale) * kSize;
 }
 
-float TextWidth(uint32_t font, const std::vector<uint16_t>& text) {
+float TextWidth(uint32_t font, const std::vector<uint16_t>& text, float font_scale = -1.0f) {
     float advance = 0;
-    for (uint16_t code : text) advance += G<float>(Glyph(font, code) + kGlyphAdvance);
-    return advance * G<float>(font + kFontScale) * kSize * float(game::Opt().subtitle_size) / 100.0f;
+    for (uint16_t code : text) {
+        code = subtitles::DisplayGlyph(code, PortugueseSubtitleFont());
+        advance += G<float>(Glyph(font, code) + kGlyphAdvance);
+    }
+    if (font_scale < 0.0f) font_scale = G<float>(font + kFontScale);
+    return advance * font_scale * kSize * float(game::Opt().subtitle_size) / 100.0f;
 }
 
 // x and y in lines of a 480 frame from the output's top left
@@ -97,15 +112,17 @@ void DrawText(X86Context& ctx, uint32_t font, const View& view, const char* text
 
 void DrawCaptionLine(X86Context& ctx, uint32_t font, const View& view,
                      const std::vector<uint16_t>& text, float x, float y, bool bold,
-                     uint32_t colour, uint32_t shadow) {
+                     uint32_t colour, uint32_t shadow, float render_scale = 1.0f) {
     if (text.empty()) return;
     static const uint32_t block = mem::AllocSystem(0x1000);
     const uint32_t rgba = block;
     const uint32_t chars = block + 0x10;
     const size_t count = std::min<size_t>(text.size(), 500);
-    for (size_t i = 0; i <= count; ++i) G<uint16_t>(chars + i * 2) = i < count ? text[i] : 0;
+    const bool portuguese = PortugueseSubtitleFont();
+    for (size_t i = 0; i <= count; ++i)
+        G<uint16_t>(chars + i * 2) = i < count ? subtitles::DisplayGlyph(text[i], portuguese) : 0;
     const float scale = float(game::Opt().subtitle_size) / 100.0f;
-    const float native_size = kSize * scale;
+    const float native_size = kSize * scale * render_scale;
     const float px = x * view.unit * view.narrow;
     const float py = y * view.unit;
     const float shadow_offset = shadow == 2 ? 1.5f : shadow == 1 ? 0.75f : 0.0f;
@@ -122,7 +139,8 @@ void DrawCaptionLine(X86Context& ctx, uint32_t font, const View& view,
     if (bold) draw(0.35f, 0, r, g, b, 1);
 }
 
-std::vector<std::vector<uint16_t>> WrapCaption(uint32_t font, std::string_view utf8, float max_width) {
+std::vector<std::vector<uint16_t>> WrapCaption(uint32_t font, std::string_view utf8, float max_width,
+                                                float measure_scale = -1.0f) {
     const auto decoded = subtitles::DecodeUtf8(utf8);
     std::vector<std::vector<uint16_t>> lines;
     std::vector<uint16_t> line, word;
@@ -131,7 +149,7 @@ std::vector<std::vector<uint16_t>> WrapCaption(uint32_t font, std::string_view u
         if (!line.empty()) line.push_back(' ');
         for (uint16_t code : word) {
             line.push_back(code);
-            if (line.size() > 1 && TextWidth(font, line) > max_width) {
+            if (line.size() > 1 && TextWidth(font, line, measure_scale) > max_width) {
                 const uint16_t last = line.back();
                 line.pop_back();
                 if (!line.empty()) lines.push_back(std::move(line));
@@ -146,7 +164,7 @@ std::vector<std::vector<uint16_t>> WrapCaption(uint32_t font, std::string_view u
         auto candidate = line;
         if (!candidate.empty()) candidate.push_back(' ');
         candidate.insert(candidate.end(), word.begin(), word.end());
-        if (!line.empty() && TextWidth(font, candidate) > max_width) {
+        if (!line.empty() && TextWidth(font, candidate, measure_scale) > max_width) {
             lines.push_back(std::move(line));
             line.clear();
         }
@@ -231,22 +249,40 @@ void DrawOverlay(X86Context& ctx, uint8_t*) {
     if (!caption.empty()) {
         const float output_width = game::Aspect() * 480.0f;
         const float max_width = output_width * 0.82f;
-        const auto lines = WrapCaption(font, caption, max_width);
+        const auto lines = WrapCaption(font, caption, max_width, game_width);
         const float line_height = kSize * float(game::Opt().subtitle_size) / 100.0f * 1.35f;
         const float bottom = 480.0f * 0.91f;
         const float first_y = bottom - line_height * float(lines.size());
+        float widest = 0.0f;
+        for (const auto& line : lines) widest = std::max(widest, TextWidth(font, line, game_width));
+        if (game::Opt().subtitle_background && widest > 0.0f) {
+            const float center = output_width * 0.5f * view.unit * view.narrow;
+            const float panel_width = widest * view.unit * view.narrow;
+            d3d::DrawSolidRect(center - panel_width * 0.5f - kSubtitlePanelPaddingX * view.unit,
+                               first_y * view.unit - kSubtitlePanelPaddingY * view.unit,
+                               center + panel_width * 0.5f + kSubtitlePanelPaddingX * view.unit,
+                               (first_y + line_height * float(lines.size())) * view.unit + kSubtitlePanelPaddingY * view.unit,
+                               kSubtitlePanelAlpha);
+        }
         for (size_t i = 0; i < lines.size(); ++i)
-            DrawCaptionLine(ctx, font, view, lines[i], (output_width - TextWidth(font, lines[i])) * 0.5f,
+            DrawCaptionLine(ctx, font, view, lines[i], subtitles::CenteredCaptionX(output_width,
+                            TextWidth(font, lines[i], game_width)),
                             first_y + line_height * float(i), game::Opt().subtitle_bold,
                             game::Opt().subtitle_color, game::Opt().subtitle_shadow);
     }
     if (preview.active && !preview.text.empty()) {
-        const auto lines = WrapCaption(font, preview.text, output_width * 0.82f);
-        const float line_height = kSize * float(game::Opt().subtitle_size) / 100.0f * 1.35f;
+        // The preview is anchored under the R in its menu row, so wrap against
+        // the remaining screen width instead of allowing a long test string to
+        // run off the right edge.
+        const float available_width = std::max(1.0f, output_width - preview.x - kMargin);
+        const auto lines = WrapCaption(font, preview.text, available_width, game_width);
+        const float line_height = kSize * float(game::Opt().subtitle_size) / 100.0f * 1.35f * 0.65f;
+        float widest = 0.0f;
+        for (const auto& line : lines) widest = std::max(widest, TextWidth(font, line, game_width) * 0.65f);
         for (size_t i = 0; i < lines.size(); ++i)
             DrawCaptionLine(ctx, font, view, lines[i], preview.x,
                             preview.y + line_height * float(i), game::Opt().subtitle_bold,
-                            game::Opt().subtitle_color, game::Opt().subtitle_shadow);
+                            game::Opt().subtitle_color, game::Opt().subtitle_shadow, 0.65f);
     }
     width = game_width;
     if (R32(kQuads)) CallGuest(ctx, kFlush, {});

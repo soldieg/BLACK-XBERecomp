@@ -17,7 +17,7 @@ This repository is a community-maintained fork of [TGP482/BLACK-XBERecomp](https
 ### Languages and Subtitles
 - Open **Language** in the in-game settings and choose English, French, German, Italian, Spanish, Brazilian Portuguese, Bahasa Indonesia, or Russian.
 - The game checks the Windows display language on first launch. If it is supported, it selects it; otherwise English remains the fallback.
-- Language menus and subtitle packages are downloaded from [BLACK-SUBTITLES](https://github.com/soldieg/BLACK-SUBTITLES). An internet connection is needed to download or update them. Choose **Update Translations** in the Language menu to check the manifest and download all available language packages.
+- Language menus and subtitle packages are downloaded from [BLACK-SUBTITLES](https://github.com/soldieg/BLACK-SUBTITLES). An internet connection is needed to download or update them. Selecting a language downloads that package; **Update Translations** checks the manifest and downloads all available packages.
 - Changing the selected language prompts for a restart. Subtitle display can be enabled or disabled, with options for size, bold text, color, shadow, and background.
 - Downloaded files are stored in the `language` folder beside `BLACK.exe`. Translation packages are not bundled into the executable or release ZIP.
 <img width="1920" height="1080" alt="{5852D359-24A0-48C8-9319-07C3A619E355}" src="https://github.com/user-attachments/assets/e0156eb8-c1b5-49d9-ab93-3abb46bf5f47" />
@@ -52,6 +52,7 @@ This repository is a community-maintained fork of [TGP482/BLACK-XBERecomp](https
 - **Mouse and Keyboard** - Full keyboard and mouse support with raw input, adjustable sensitivity, inverted look and rebindable controls.
 - **Controller** - Controller with SDL3 support and additional features.
 - **Controller Options** - Configure controller aim behavior, sensitivity, and rumble from the in-game options.
+- **Aim Assist** - Turn the game's controller aim assistance on or off. It remains disabled while keyboard and mouse are controlling the game.
 - **Zoom Sensitivity** - Keeps mouse look sensitivity consistent with the current view FOV while aiming.
 - **Menu Animations** - Toggle the game's menu transitions.
 
@@ -72,12 +73,19 @@ This repository is a community-maintained fork of [TGP482/BLACK-XBERecomp](https
 
 ### Community Changes in This Fork
 - Runtime language selection, manifest-based language downloads and updates, translated game/recomp menus, cutscene subtitles, and subtitle display settings.
+- Portuguese subtitle glyph compatibility: missing tilde glyphs in the Portuguese font atlas are mapped to the corresponding supported umlaut glyphs, so `ã/Ã` and `õ/Õ` render instead of missing-character boxes.
+- Subtitle positioning and preview fixes: cutscene text is centered to the output, long lines wrap within the screen width, and the preview uses the game's subtitle font and background settings.
+- Save preservation: save data is kept in the per-user persistent HDD location, existing profiles are validated before use, and verified profiles in legacy or preserved AppData folders can be recovered without deleting the source.
 - A deeper XAudio2 output queue to reduce audio crackling.
 - A weapons page in the F10 panel.
 - Field-of-view limits and rendering adjustments to reduce first-person weapon clipping.
 - A D3D12 light-glow alignment adjustment.
 - Optional fingerprint-based HD texture replacement, with validation and original-texture fallback.
 - Controller settings, menu animation control, improved audio output handling, and 30 FPS timing fixes for selected effects.
+- A controller aim-assist toggle and a 4:3 exception for the EA opening logo film.
+- Corrected profile discovery so a missing `Profile` in an otherwise valid HDD is not mistaken for a corrupt save.
+
+See [the upstream and feature audit](docs/UPSTREAM_FEATURE_AUDIT_2026-10-18.md) for the per-commit status and the features that remain candidates for later work.
 
 ## System Requirements
 ### Minimum

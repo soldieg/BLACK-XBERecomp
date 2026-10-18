@@ -197,7 +197,16 @@ if(SDK_KERNEL_FILES_INCLUDE_NEW_AT EQUAL -1)
 endif()
 set(SDK_FONT_RESOLVE_OLD [=[Target Resolve(const std::string& xbox_path, uint32_t root_handle) {]=])
 set(SDK_FONT_RESOLVE_NEW [=[std::string LocaleFontOverride(const std::vector<std::string>& parts) {
-    if (parts.size() != 3 || Upper(parts[0]) != "LANGUAGE" || Upper(parts[1]) != "FONTS") return {};
+    // Match the game's language font directory even if a repack includes an
+    // optional locale subdirectory below Fonts.
+    size_t fonts = std::string::npos;
+    for (size_t i = 1; i < parts.size(); ++i) {
+        if (Upper(parts[i - 1]) == "LANGUAGE" && Upper(parts[i]) == "FONTS") {
+            fonts = i;
+            break;
+        }
+    }
+    if (fonts == std::string::npos || fonts + 1 >= parts.size()) return {};
     const std::string& code = game::BootLanguage();
     std::string locale;
     if (code == "fra") locale = "fr";
@@ -206,17 +215,37 @@ set(SDK_FONT_RESOLVE_NEW [=[std::string LocaleFontOverride(const std::vector<std
     else if (code == "esp") locale = "es";
     else if (code != "int") locale = code;
     if (locale.empty()) return {};
-    const std::string filename = Upper(parts[2]);
+    const std::string filename = Upper(parts.back());
     if (filename != "BIG.BIN" && filename != "SMALL.BIN") return {};
     fs::path path = app::ExeDir() / "language" / locale / "Localization" / "Fonts" / locale /
                     (filename == "BIG.BIN" ? "Big.bin" : "Small.bin");
     std::error_code ec;
     const bool available = fs::is_regular_file(path, ec);
-    LOGI("language font lookup: %s -> %s", path.string().c_str(), available ? "override" : "disc fallback");
+    LOGR("language font lookup: %s -> %s", path.string().c_str(), available ? "override" : "disc fallback");
     return available ? path.string() : std::string{};
 }
 
 Target Resolve(const std::string& xbox_path, uint32_t root_handle) {]=])
+# CMake may reconfigure an existing build whose SDK source already contains the
+# earlier, exact-three-components override. Upgrade that injected helper too.
+set(SDK_FONT_PATH_MATCH_OLD [=[    if (parts.size() != 3 || Upper(parts[0]) != "LANGUAGE" || Upper(parts[1]) != "FONTS") return {};]=])
+set(SDK_FONT_PATH_MATCH_NEW [=[    // Match the game's language font directory even if a repack includes an
+    // optional locale subdirectory below Fonts.
+    size_t fonts = std::string::npos;
+    for (size_t i = 1; i < parts.size(); ++i) {
+        if (Upper(parts[i - 1]) == "LANGUAGE" && Upper(parts[i]) == "FONTS") {
+            fonts = i;
+            break;
+        }
+    }
+    if (fonts == std::string::npos || fonts + 1 >= parts.size()) return {};]=])
+string(REPLACE "${SDK_FONT_PATH_MATCH_OLD}" "${SDK_FONT_PATH_MATCH_NEW}"
+       SDK_KERNEL_FILES_TEXT "${SDK_KERNEL_FILES_TEXT}")
+string(REPLACE "const std::string filename = Upper(parts[2]);"
+       "const std::string filename = Upper(parts.back());" SDK_KERNEL_FILES_TEXT "${SDK_KERNEL_FILES_TEXT}")
+string(REPLACE "LOGI(\"language font lookup: %s -> %s\", path.string().c_str(), available ? \"override\" : \"disc fallback\");"
+       "LOGR(\"language font lookup: %s -> %s\", path.string().c_str(), available ? \"override\" : \"disc fallback\");"
+       SDK_KERNEL_FILES_TEXT "${SDK_KERNEL_FILES_TEXT}")
 string(FIND "${SDK_KERNEL_FILES_TEXT}" "std::string LocaleFontOverride(" SDK_FONT_RESOLVE_MARKER_AT)
 if(SDK_FONT_RESOLVE_MARKER_AT EQUAL -1)
     string(FIND "${SDK_KERNEL_FILES_TEXT}" "${SDK_FONT_RESOLVE_OLD}" SDK_FONT_RESOLVE_OLD_AT)
