@@ -3,7 +3,7 @@ An unofficial native PC port of the original Xbox version of Black, with extende
 
 This port was created using the [Xbox XBE Recomp](https://github.com/TGP482/XboxXBE-Recomp) tool.
 
-This repository is a community-maintained fork of [TGP482/BLACK-XBERecomp](https://github.com/TGP482/BLACK-XBERecomp). It is maintained for personal and community use, with the goal of keeping this fork current with selected upstream changes and community contributions. This fork currently carries five additional pull requests and is not an official release of the upstream project.
+This repository is a community-maintained fork of [TGP482/BLACK-XBERecomp](https://github.com/TGP482/BLACK-XBERecomp). It is maintained for personal and community use, with the goal of keeping this fork current with selected upstream changes and community contributions. It is not an official release of the upstream project.
 
 > [!NOTE]
 > This project does not include any game assets. You must provide the files from your own legally acquired copy of the game to install or build.
@@ -29,8 +29,8 @@ This repository is a community-maintained fork of [TGP482/BLACK-XBERecomp](https
 - **Display Mode** - Switch between Fullscreen, Borderless and Windowed.
 - **Resolution** - Lists every mode your monitor reports and defaults to your desktop resolution, replacing the original 640x480 resolution.
 - **Render Resolution** - Renders the game at 20% to 200% of the output resolution, allowing supersampling or downscaling independent of the window size.
-- **Field of View** - Sets the horizontal field of view during gameplay from 45 to 100 degrees, with 70 being the game's default.
-- **Viewmodel Field of View** - Adjusts the first-person weapon and arms field of view from 45 to 100 degrees. The rendering changes also reduce weapon clipping at wider settings.
+- **Field of View** - Sets the horizontal field of view during gameplay from 45 to 140 degrees, with 70 being the game's default.
+- **Viewmodel Field of View** - Adjusts the first-person weapon and arms field of view from 45 to 140 degrees. The rendering changes also reduce weapon clipping at wider settings.
 - **Max Frame Rate** - Caps the frame rate to your monitor's refresh rate or a custom value, or removes the cap entirely, replacing the Xbox's 30 FPS limiter.
 - **V-Sync** - Reduces screen tearing.
 - **HDR Output** - Enables HDR10 output on displays with Windows HDR turned on, detected automatically. Highlights extend up to the display's peak brightness.
@@ -43,15 +43,21 @@ This repository is a community-maintained fork of [TGP482/BLACK-XBERecomp](https
 - **Anisotropic Filtering** - Forces the selected anisotropic filtering level on all textures.
 - **Draw Distance** - Increases the level of detail and draw distances past the game's values: 2x, 4x, 8x, 12x or 16x.
 - **Ambient Occlusion** - Adds screen space ambient occlusion, creating soft contact shadows where surfaces meet. Choose between SSAO and GTAO.
+- **Translucent Surface Shading** - Keeps ambient occlusion and fog from incorrectly darkening or tinting translucent surfaces.
+- **Optional HD Texture Packs** - Loads compatible replacements from a `textures` folder beside `BLACK.exe`; absent or invalid replacements fall back to the original game texture.
 - **Reload Blur** - Toggles the blur effect while reloading.
 - **Light Glow Alignment** - Adjusts the final glow composite so bright effects line up more closely with their light sources.
 
 ### Input
 - **Mouse and Keyboard** - Full keyboard and mouse support with raw input, adjustable sensitivity, inverted look and rebindable controls.
 - **Controller** - Controller with SDL3 support and additional features.
+- **Controller Options** - Configure controller aim behavior, sensitivity, and rumble from the in-game options.
+- **Zoom Sensitivity** - Keeps mouse look sensitivity consistent with the current view FOV while aiming.
+- **Menu Animations** - Toggle the game's menu transitions.
 
 ### Audio
 - **XAudio2 Output Queue** - Uses a deeper audio output queue to help reduce crackling.
+- **Audio Output Modes** - Supports stereo, mono, and 5.1 output with game-compatible downmixing and in-game panning.
 
 ### Weapons
 - **Weapons Page** - Adds a page to the F10 settings panel for selecting any of the game's weapons in a level and filling ammunition. This is an optional testing and gameplay utility.
@@ -62,6 +68,7 @@ This repository is a community-maintained fork of [TGP482/BLACK-XBERecomp](https
 
 ### Miscellaneous
 - **Custom Menu Cursor** - Place a `cursor.png` (or `cursor.dds`) beside the exe to replace the Windows arrow in the game's menus.
+- **HD texture pack files** - Put replacement files in `textures/` beside `BLACK.exe`. The game log reports the fingerprint filename for supported source textures that do not have a replacement. Use that exact 16-digit hexadecimal name with a `.dds` extension. Accepted files are BC3/DXT5 DDS with a valid mip chain, or single-level 32-bit BGRA DDS for sharp edges such as font atlases. No texture files are bundled; invalid or missing replacements use the original texture.
 
 ### Community Changes in This Fork
 - Runtime language selection, manifest-based language downloads and updates, translated game/recomp menus, cutscene subtitles, and subtitle display settings.
@@ -69,6 +76,8 @@ This repository is a community-maintained fork of [TGP482/BLACK-XBERecomp](https
 - A weapons page in the F10 panel.
 - Field-of-view limits and rendering adjustments to reduce first-person weapon clipping.
 - A D3D12 light-glow alignment adjustment.
+- Optional fingerprint-based HD texture replacement, with validation and original-texture fallback.
+- Controller settings, menu animation control, improved audio output handling, and 30 FPS timing fixes for selected effects.
 
 ## System Requirements
 ### Minimum

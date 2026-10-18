@@ -48,6 +48,7 @@ constexpr int kEntries = kMainMenuEntries;
 constexpr int kSlots = 8;
 constexpr int kDepth = 100;
 constexpr int kEscape = 0x1B;
+const Row kPageRow{app::rows::Kind::Value, -1, "PAGE"};
 constexpr int kPrompts = 2;
 
 // the selection bar, Main.ButtonSelector: its parts by depth; once shown it stops on frame 10, its data's frame 9

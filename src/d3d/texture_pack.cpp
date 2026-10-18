@@ -5,12 +5,17 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <mutex>
+#include <unordered_set>
 
 #include "app/app.h"
 #include "core/log.h"
 
 namespace texture_pack {
 namespace {
+std::mutex g_logged_mutex;
+std::unordered_set<uint64_t> g_logged_missing;
+
 const std::filesystem::path& Directory() {
     static const auto path = app::ExeDir() / "textures";
     return path;
@@ -45,7 +50,13 @@ bool Load(const gpu::TextureDesc& original, const uint8_t* pixels, const uint32_
     char name[32];
     std::snprintf(name, sizeof(name), "%016llx.dds", static_cast<unsigned long long>(key));
     std::ifstream file(Directory() / name, std::ios::binary | std::ios::ate);
-    if (!file) return false;
+    if (!file) {
+        std::lock_guard lock(g_logged_mutex);
+        if (g_logged_missing.insert(key).second)
+            LOGR("textures: no replacement %s (source %ux%u, format 0x%x)", name, original.width, original.height,
+                 original.format);
+        return false;
+    }
     auto length = file.tellg();
     if (length < 128 || length > (256 << 20)) return false;
     file.seekg(0);
