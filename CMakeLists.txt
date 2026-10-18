@@ -25,12 +25,12 @@ set(SDK_APP_MAIN_SOURCE "${SDK}/runtime/app/main.cpp")
 file(READ "${SDK_APP_MAIN_SOURCE}" SDK_APP_MAIN_TEXT)
 set(SDK_APP_MAIN_ORIGINAL "${SDK_APP_MAIN_TEXT}")
 set(SDK_APP_MAIN_OLD [=[#include "app/app.h"]=])
+string(REPLACE [=[#include "common/save_data.h"]=] "" SDK_APP_MAIN_TEXT "${SDK_APP_MAIN_TEXT}")
+string(REPLACE [=[#include "common/native_dialogs.h"]=] "" SDK_APP_MAIN_TEXT "${SDK_APP_MAIN_TEXT}")
 set(SDK_APP_MAIN_NEW [=[#include "app/app.h"
-#include "common/save_data.h"]=])
-string(FIND "${SDK_APP_MAIN_TEXT}" "${SDK_APP_MAIN_OLD}" SDK_APP_MAIN_INCLUDE_OLD_AT)
-if(NOT SDK_APP_MAIN_INCLUDE_OLD_AT EQUAL -1)
-    string(REPLACE "${SDK_APP_MAIN_OLD}" "${SDK_APP_MAIN_NEW}" SDK_APP_MAIN_TEXT "${SDK_APP_MAIN_TEXT}")
-endif()
+#include "common/save_data.h"
+#include "common/native_dialogs.h"]=])
+string(REPLACE "${SDK_APP_MAIN_OLD}" "${SDK_APP_MAIN_NEW}" SDK_APP_MAIN_TEXT "${SDK_APP_MAIN_TEXT}")
 set(SDK_APP_HDD_OLD [=[    std::wstring hdd = app::Instance() > 1 ? L"hdd" + std::to_wstring(app::Instance()) : L"hdd";]=])
 set(SDK_APP_HDD_NEW [=[    const std::filesystem::path save_hdd = game::PrepareSaveDataDirectory(app::ExeDir(), app::Instance());
     if (save_hdd.empty()) return 1;]=])
@@ -41,6 +41,9 @@ endif()
 set(SDK_APP_BOOT_OLD [=[(app::ExeDir() / hdd).string()]=])
 set(SDK_APP_BOOT_NEW [=[save_hdd]=])
 string(REPLACE "${SDK_APP_BOOT_OLD}" "${SDK_APP_BOOT_NEW}" SDK_APP_MAIN_TEXT "${SDK_APP_MAIN_TEXT}")
+string(REPLACE [=[L"The game failed to start, see the log in the logs folder."]=]
+               [=[native_dialogs::Text(native_dialogs::TextId::BootFailed).c_str()]=]
+               SDK_APP_MAIN_TEXT "${SDK_APP_MAIN_TEXT}")
 string(FIND "${SDK_APP_MAIN_TEXT}" "game::PrepareSaveDataDirectory" SDK_APP_MAIN_MARKER_AT)
 if(SDK_APP_MAIN_MARKER_AT EQUAL -1)
     message(FATAL_ERROR "Could not apply persistent save-directory initialization to ${SDK_APP_MAIN_SOURCE}")

@@ -73,6 +73,7 @@ constexpr Entry kEntries[] = {
     {"CURRENT SIZE", {u"Taille actuelle", u"Aktuelle Größe", u"Dimensione attuale", u"Tamaño actual", u"Tamanho atual", u"UKURAN SAAT INI", u"ТЕКУЩИЙ РАЗМЕР"}},
     {"PREVIEW", {u"Aperçu", u"Vorschau", u"Anteprima", u"Vista previa", u"Prévia", u"PRATINJAU", u"ПРЕДПРОСМОТР"}},
     {"This is a subtitle preview.", {u"Voici un aperçu des sous-titres.", u"So sehen die Untertitel aus.", u"Ecco un'anteprima dei sottotitoli.", u"Así se verán los subtítulos.", u"Esta é uma prévia da legenda.", u"Ini contoh tampilan subtitle.", u"Так будут выглядеть субтитры."}},
+    {"Subtitle test", {u"Test de sous-titres", u"Untertiteltest", u"Prova sottotitoli", u"Prueba de subtítulos", u"Teste de legenda", u"Tes subtitle", u"Тест субтитров"}},
     {"BOLD", {u"Gras", u"Fett", u"Grassetto", u"Negrita", u"Negrito", u"TEBAL", u"ЖИРНЫЙ"}},
     {"COLOR", {u"Couleur", u"Farbe", u"Colore", u"Color", u"Cor", u"WARNA", u"ЦВЕТ"}},
     {"SHADOW", {u"Ombre", u"Schatten", u"Ombra", u"Sombra", u"Sombra", u"BAYANGAN", u"ТЕНЬ"}},
