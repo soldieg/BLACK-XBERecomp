@@ -139,10 +139,10 @@ add_custom_target(build_info
             -P ${CMAKE_CURRENT_SOURCE_DIR}/tools/build_info.cmake
     BYPRODUCTS ${BUILD_INFO}
     VERBATIM)
-# version.rc also embeds src/common/europe.patch
+# version.rc also embeds src/common/europe.patch and the application icon
 set_source_files_properties(src/common/version.rc PROPERTIES
     INCLUDE_DIRECTORIES "${CMAKE_CURRENT_BINARY_DIR};${CMAKE_CURRENT_SOURCE_DIR}/src/common"
-    OBJECT_DEPENDS "${BUILD_INFO};${CMAKE_CURRENT_SOURCE_DIR}/src/common/europe.patch")
+    OBJECT_DEPENDS "${BUILD_INFO};${CMAKE_CURRENT_SOURCE_DIR}/src/common/europe.patch;${CMAKE_CURRENT_SOURCE_DIR}/src/common/black.ico")
 target_sources(Black PRIVATE src/common/version.rc)
 add_dependencies(Black build_info)
 set_target_properties(Black PROPERTIES OUTPUT_NAME BLACK)

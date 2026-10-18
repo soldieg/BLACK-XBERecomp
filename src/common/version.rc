@@ -1,5 +1,7 @@
 #include "build_info.h"
 
+1 ICON "black.ico"
+
 1 VERSIONINFO
 FILEOS 0x40004
 FILETYPE 0x1

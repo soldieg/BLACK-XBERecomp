@@ -24,6 +24,7 @@ bool Translated();  // language.cpp
 namespace {
 
 constexpr uint32_t kResetTexts = 0xECA90;  // every text on screen is made again from its string
+constexpr uint32_t kGameMenuTextBufferSize = 0x80;  // the guest copies 127 bytes from each menu text
 // string ids
 constexpr uint32_t kConfirm = 0xE0CA7C5F;
 constexpr uint32_t kBack = 0x64199B75;
@@ -109,8 +110,13 @@ X86_FUNC(sub_001F3A80) {
             std::lock_guard catalog_guard(catalog_lock);
             auto [it, fresh] = catalog_text.try_emplace(id, 0);
             if (fresh) {
-                it->second = mem::AllocSystem(uint32_t(translated.size() + 1));
-                if (it->second) std::memcpy(HostPtr(it->second), translated.c_str(), translated.size() + 1);
+                const size_t allocation_size = std::max<size_t>(kGameMenuTextBufferSize, translated.size() + 1);
+                it->second = mem::AllocSystem(uint32_t(allocation_size));
+                if (it->second) {
+                    void* guest_text = HostPtr(it->second);
+                    std::memset(guest_text, 0, allocation_size);
+                    std::memcpy(guest_text, translated.c_str(), translated.size() + 1);
+                }
             }
             if (it->second) ctx.eax = it->second;
         }
