@@ -10,6 +10,7 @@ Integrate the missing, compatible changes from the current TGP BLACK recomp bran
 - TGP source: `TGP482/BLACK-XBERecomp` `main` at `a91ddc89de9702c0b58d9030e1a6ce62f13eebdc`.
 - Mahdi source: `mahdip72/BLACK-XBERecomp` `main` at `44af0f788c6b93e758a34701771773d884a70423`.
 - The fork already contains 12x/16x draw distance and mouse-driven weapon sway; preserve those implementations and do not layer duplicate patches over them.
+- The user previously requested a 140-degree maximum for both camera and viewmodel FOV. The public fork currently clamps both to 100 degrees, so this integration must preserve the requested 140-degree cap rather than silently inherit that lower limit.
 - The working copy `release-main` contains uncommitted user changes and a texture loader restricted to 11 known menu texture fingerprints. It is not the publication source and must remain untouched.
 - The fork's existing translation and subtitle code remains the owner of locale selection and subtitle rendering. No translation packages or game texture assets will be included in this code PR.
 
@@ -19,7 +20,7 @@ Port or selectively adapt these changes from TGP after comparing their complete 
 
 1. Ambient occlusion blending/fog correction.
 2. Controller options page and access to stock options from the pause menu, reconciled with the fork's custom language/subtitle screens and options panel.
-3. Mouse zoom sensitivity tied to view FOV.
+3. Mouse zoom sensitivity tied to view FOV; keep the requested 140-degree camera/viewmodel FOV maximum.
 4. Walk-to-stop transition timing corrected for 30 FPS.
 5. Optional menu-animation setting and recomp-settings categories.
 6. Adaptive XAudio2 queue depth that starts at lower latency and grows on starvation, bounded by the existing 100 ms ceiling.
@@ -37,7 +38,7 @@ The local draft's 11-entry menu-only fingerprint allowlist is not sufficient for
 
 ## Design choices
 
-- Use one feature branch and one PR against the user's fork's current `main`, with separate commits for TGP runtime changes and HD texture loading. This keeps the requested bundle reviewable while making each subsystem easy to identify or revert.
+- Use one feature branch and one PR against the user's fork's current `main`, with separate commits for rendering/timing, options/input, audio, and HD texture loading. This keeps the requested bundle reviewable while making each subsystem easy to identify or revert.
 - Preserve the existing fork's option model and settings serialization. New options must have safe defaults and not change existing user settings.
 - Keep the HD pack optional and fail-safe: no pack means original rendering; an invalid pack entry is ignored and logged.
 - Extend existing CI where appropriate, but do not copy unrelated CI or project changes wholesale from upstream.
