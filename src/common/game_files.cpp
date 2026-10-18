@@ -15,6 +15,7 @@
 #include <fstream>
 
 #include "app/app.h"
+#include "common/native_dialogs.h"
 #include "core/log.h"
 #include "image_symbols.h"
 #include "kernel/crypto.h"
@@ -215,12 +216,11 @@ bool FindGame(GameFiles& game) {
     }
 
     if (other_name.empty()) {
-        MessageBoxW(nullptr, kGame.missing, kGame.short_title, MB_ICONERROR);
+        const std::wstring missing = native_dialogs::Text(native_dialogs::TextId::GameFilesMissing);
+        MessageBoxW(nullptr, missing.c_str(), kGame.short_title, MB_ICONERROR);
         return false;
     }
-    std::wstring text = other_name.filename().wstring() +
-                        L" is a different release of the game than this build was made from, and will most likely "
-                        L"crash.\n\nStart it anyway?";
+    std::wstring text = native_dialogs::GameReleaseWarning(other_name.filename().wstring());
     int answer = MessageBoxW(nullptr, text.c_str(), kGame.short_title, MB_ICONWARNING | MB_YESNO | MB_DEFBUTTON2);
     if (answer != IDYES) return false;
     game = std::move(other);

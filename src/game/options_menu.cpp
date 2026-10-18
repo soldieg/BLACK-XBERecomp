@@ -11,6 +11,7 @@
 
 #include "common/menu.h"
 #include "common/mouse_keyboard.h"
+#include "common/options.h"
 #include "common/translations.h"
 #include "core/log.h"
 #include "game/flash.h"
@@ -120,6 +121,7 @@ struct Page {
     uint32_t entry[kEntries] = {};
     uint32_t name[kSlots] = {};
     uint32_t value[kSlots] = {};
+    uint32_t preview_background = 0;
     size_t slots = 0;
     size_t top = 0;
     std::vector<const Row*> rows;  // null restores the defaults
@@ -163,11 +165,11 @@ void Write(Field& f, const std::string& text) {
     W32(f.data + flash::kFieldFlags, (R32(f.data + flash::kFieldFlags) & ~1u) | 0x204);
 }
 
-// a copy of the stock button beside it, stopped
-uint32_t Copy(X86Context& ctx, uint32_t holder, const char* name, int depth) {
+// a copy of a Flash clip beside it, stopped
+uint32_t Copy(X86Context& ctx, uint32_t holder, const char* source, const char* name, int depth) {
     char number[12];
     std::snprintf(number, sizeof(number), "%d", depth);
-    ctx.eax = Text(g_page.host->button);
+    ctx.eax = Text(source);
     CallGuest(ctx, flash::kCall, {Text("duplicateMovieClip"), 0, 2, Text(name), Text(number)});
     uint32_t clip = Member(ctx, holder, name);
     if (flash::Type(clip) != flash::kSprite) return 0;
@@ -176,12 +178,18 @@ uint32_t Copy(X86Context& ctx, uint32_t holder, const char* name, int depth) {
     return clip;
 }
 
+uint32_t Copy(X86Context& ctx, uint32_t holder, const char* name, int depth) {
+    return Copy(ctx, holder, g_page.host->button, name, depth);
+}
+
 void Hide(uint32_t clip) {
     if (flash::IsClip(clip)) W32(clip + flash::kClipFlags, R32(clip + flash::kClipFlags) & ~flash::kClipShown);
 }
 
 // ours keep their places from a stock clip, which the page slides and fades in: x, y, then its colours
-void Follow(const Page& p) {
+float Measure(uint32_t font, const std::string& text);
+
+void Follow(X86Context& ctx, const Page& p) {
     const Host& h = *p.host;
     auto follow = [&p](uint32_t clip, uint32_t anchor, float x, float y) {
         if (!clip) return;
@@ -199,7 +207,19 @@ void Follow(const Page& p) {
     }
     for (int i = 0; i < kSlots; i++) {
         follow(p.name[i], p.lead, h.name_x, h.pitch * float(i));
-        follow(p.value[i], p.lead, h.value_x, h.pitch * float(i));
+        if (p.preview_background && p.pinned_row && i == int(p.slots) - 1 &&
+            p.mode == kSubtitleSettingsMode) {
+            const uint32_t font = CallGuest(ctx, kFindFont, {R32(kGame), kFontName});
+            const std::string label = app::Ui(p.pinned_row->label);
+            const size_t r = label.find('R');
+            const std::string before_r = r == std::string::npos ? std::string{} : label.substr(0, r);
+            const float scale = h.scale * float(game::Opt().subtitle_size) / 100.0f;
+            follow(p.value[i], p.name[i], Measure(font, before_r) * kTextHeight, h.pitch);
+            G<float>(p.value[i] + flash::kClipScaleX) = scale;
+            G<float>(p.value[i] + flash::kClipScaleY) = scale;
+        } else {
+            follow(p.value[i], p.lead, h.value_x, h.pitch * float(i));
+        }
     }
 }
 
@@ -228,7 +248,7 @@ bool Entries(X86Context& ctx, uint32_t root, uint32_t holder) {
         if (!Show(ctx, kEntry + i, p.entry[i], nullptr, app::Ui(caption).c_str())) return false;
     }
     p.first = p.entry[0];
-    Follow(p);
+    Follow(ctx, p);
     CallGuest(ctx, flash::kRunActions, {R32(flash::kPlayer)});
     for (int i = 0; i < h.entries; i++) {
         if (!Button(ctx, p.entry[i], top)) return false;
@@ -327,7 +347,7 @@ bool Rows(X86Context& ctx, uint32_t root, uint32_t holder, uint32_t menu) {
         if (!Show(ctx, kName + int(i), p.name[i]) || !Show(ctx, kValue + int(i), p.value[i])) return false;
     }
     p.first = p.name[0];
-    Follow(p);
+    Follow(ctx, p);
     CallGuest(ctx, flash::kRunActions, {R32(flash::kPlayer)});
     for (size_t i = 0; i < p.slots; i++) {
         // a confirm on a button with no action is a back
@@ -456,6 +476,37 @@ const Host* FindHost(const char* name) {
     return nullptr;
 }
 
+uint32_t SubtitlePreviewBackground(X86Context& ctx, uint32_t root) {
+    uint32_t main = Member(ctx, root, "Main");
+    uint32_t selector = Member(ctx, main, "ButtonSelector");
+    if (!main || flash::Type(selector) != flash::kSprite) return 0;
+
+    constexpr char kName[] = "RC_SubtitlePreviewBg";
+    uint32_t background = Member(ctx, main, kName);
+    if (flash::Type(background) != flash::kSprite) {
+        background = Copy(ctx, main, "_level4.Main.ButtonSelector", kName, flash::Depth(selector) - 1);
+        if (flash::Type(background) != flash::kSprite) return 0;
+    }
+
+    uint32_t data = R32(background + flash::kClipData);
+    if (data && data != flash::kNoData) {
+        W32(data + flash::kDataFrame, kBarRest);
+        W32(data + flash::kDataFlags, R32(data + flash::kDataFlags) & ~flash::kDataPlaying);
+    }
+    bool found_box = false;
+    for (uint32_t part = flash::FirstChild(background); part; part = R32(part + flash::kClipNext)) {
+        if (flash::Depth(part) == kBarBox) {
+            W32(part + flash::kClipFlags, R32(part + flash::kClipFlags) | flash::kClipShown);
+            found_box = true;
+        } else {
+            Hide(part);
+        }
+    }
+    if (!found_box) return 0;
+    W32(background + flash::kClipFlags, R32(background + flash::kClipFlags) | flash::kClipShown);
+    return background;
+}
+
 // the page's clips made again: the stock buttons and ours, or the rows of the mode asked for
 void Build(X86Context& ctx, const Host& host, uint32_t root, uint32_t holder, uint32_t menu) {
     Page& p = g_page;
@@ -465,6 +516,8 @@ void Build(X86Context& ctx, const Host& host, uint32_t root, uint32_t holder, ui
     p.mode = g_next;
     g_next = 0;
     p.failed = !(p.mode ? Rows(ctx, root, holder, menu) : Entries(ctx, root, holder));
+    if (!p.failed && p.mode == kSubtitleSettingsMode)
+        p.preview_background = SubtitlePreviewBackground(ctx, root);
     const char* shown = p.mode ? PageCaption(p) : "buttons";
     LOGI("options menu: %s, %s%s", host.page, shown, p.failed ? ", failed" : "");
     if (!p.failed && !p.mode && g_last) Focus(ctx, p.entry[std::min(g_last, host.entries) - 1]);
@@ -576,6 +629,69 @@ void UpdateTexts(const Page& p) {
         if (!from || !to) continue;
         std::memcpy(HostPtr(to + flash::kClipMatrix), HostPtr(from + flash::kClipMatrix), kMatrixAndColours);
     }
+    if (p.mode == kSubtitleSettingsMode && p.pinned_row && p.slots)
+        Write(g_fields[kValue + p.slots - 1], app::Ui("Subtitle test", false));
+}
+
+// Render the preview with the same Flash text field and dark selector box as the game's own menu.
+void UpdateSubtitlePreview(X86Context& ctx, Page& p) {
+    if (p.mode != kSubtitleSettingsMode || !p.pinned_row || !p.slots) {
+        Hide(p.preview_background);
+        return;
+    }
+    const uint32_t root = flash::Level(flash::kMenuLevel);
+    const uint32_t main = Member(ctx, root, "Main");
+    const uint32_t font = CallGuest(ctx, kFindFont, {R32(kGame), kFontName});
+    const uint32_t background = p.preview_background;
+    if (!main || !font || !background) {
+        Hide(background);
+        return;
+    }
+
+    const std::string label = app::Ui(p.pinned_row->label);
+    const size_t r = label.find('R');
+    const std::string before_r = r == std::string::npos ? std::string{} : label.substr(0, r);
+    const std::string sample = app::Ui("Subtitle test", false);
+    const float size = float(game::Opt().subtitle_size) / 100.0f;
+    const float text_width = Measure(font, sample) * kTextHeight * size * p.host->scale;
+    const float pad_x = 8.0f * p.host->scale, pad_y = 4.0f * p.host->scale;
+    const float box_width = std::max(1.0f, p.host->bar.tick - kBarLeft);
+
+    uint32_t box = 0;
+    for (uint32_t part = flash::FirstChild(background); part; part = R32(part + flash::kClipNext)) {
+        if (flash::Depth(part) == kBarBox) {
+            box = part;
+            break;
+        }
+    }
+    if (!box) {
+        Hide(background);
+        return;
+    }
+    G<float>(box + flash::kClipScaleX) = (text_width + pad_x * 2.0f) / box_width;
+    G<float>(box + flash::kClipScaleY) = (kTextHeight * size * p.host->scale + pad_y * 2.0f) / p.host->pitch;
+
+    // Convert the preview point to the selector's parent space, stopping before Main.
+    float x = kTextLeft + Measure(font, before_r) * kTextHeight;
+    float y = p.host->pitch;
+    for (uint32_t clip = p.name[p.slots - 1], left = 0;
+         clip && clip != main && left < 32; clip = R32(clip + flash::kClipParent), left++) {
+        const float a = G<float>(clip + 0x0C), b = G<float>(clip + 0x10);
+        const float c = G<float>(clip + 0x14), d = G<float>(clip + 0x18);
+        const float tx = G<float>(clip + 0x1C), ty = G<float>(clip + 0x20);
+        const float transformed_x = a * x + c * y + tx;
+        y = b * x + d * y + ty;
+        x = transformed_x;
+    }
+    G<float>(background + flash::kClipScaleX) = 1.0f;
+    G<float>(background + flash::kClipScaleY) = 1.0f;
+    G<float>(background + 0x10) = 0.0f;
+    G<float>(background + 0x14) = 0.0f;
+    G<float>(background + flash::kClipX) = x - pad_x - kBarLeft;
+    G<float>(background + flash::kClipY) = y - pad_y;
+    G<float>(p.value[p.slots - 1] + flash::kClipScaleX) = p.host->scale * size;
+    G<float>(p.value[p.slots - 1] + flash::kClipScaleY) = p.host->scale * size;
+    W32(background + flash::kClipFlags, R32(background + flash::kClipFlags) | flash::kClipShown);
 }
 
 void Tick(X86Context& ctx, uint32_t ui) {
@@ -586,12 +702,11 @@ void Tick(X86Context& ctx, uint32_t ui) {
     const Host* host = FindHost(name);
     bool running = host && R32(flash::kPlayerReady) == 1 && R32(flash::kPlayer) && R32(ui + kPageReady) == kPageRunning;
     if (!running) {
-        app::SetSubtitleSettingsPreview(false);
+        Hide(p.preview_background);
         if (*name && !host) g_next = g_last = 0;
         p = {};
         return;
     }
-    app::SetSubtitleSettingsPreview(p.mode == kSubtitleSettingsMode);
     uint32_t going = R32(ui + kPageLeaving);
     bool leaving = going || R32(ui + kPageAsked) == 1;
     uint32_t root = flash::Level(flash::kMenuLevel);
@@ -600,14 +715,18 @@ void Tick(X86Context& ctx, uint32_t ui) {
     if (host->holder) holder = Member(ctx, holder, host->holder);
     if (!holder || !menu) return;
     if (p.failed) {
-        if (going == 1) p = {};
+        if (going == 1) {
+            Hide(p.preview_background);
+            p = {};
+        }
         return;
     }
     if (p.mode < 0 || Member(ctx, holder, p.mode ? "RC_N0" : "RC_E0") != p.first) {
         if (!leaving) Build(ctx, *host, root, holder, menu);
         return;
     }
-    Follow(p);
+    Follow(ctx, p);
+    UpdateSubtitlePreview(ctx, p);
     uint32_t id = InputTaken(ui) ? R32(ui + kMenuInput) : 0;
     if (p.mode == kSubtitleSettingsMode && id == kInputBack) {
         W32(ui + kMenuInput, 0);
@@ -616,10 +735,11 @@ void Tick(X86Context& ctx, uint32_t ui) {
         RefreshRows(ctx, p);
         Focus(ctx, p.name[1]);
         UpdateTexts(p);
+        UpdateSubtitlePreview(ctx, p);
         return;
     }
     if (going == 1) {
-        app::SetSubtitleSettingsPreview(false);
+        Hide(p.preview_background);
         p = {};
     }
     if (leaving) return;
@@ -636,6 +756,7 @@ void Tick(X86Context& ctx, uint32_t ui) {
         UpdateRow(ctx, ui, slot, id, clear);
     }
     UpdateTexts(p);
+    UpdateSubtitlePreview(ctx, p);
     if (slot < p.slots) StretchBar(ctx, p, root, focus);
 }
 

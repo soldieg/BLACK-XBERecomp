@@ -17,6 +17,7 @@
 
 #include "common/save_data.h"
 #include "common/save_storage.h"
+#include "common/native_dialogs.h"
 #include "core/log.h"
 
 namespace game {
@@ -185,36 +186,26 @@ bool ImportLegacy(const fs::path& legacy, const fs::path& target, std::string& e
 
 fs::path Fail(const std::wstring& message, const std::string& detail) {
     LOGE("save: startup blocked: %s", detail.c_str());
-    MessageBoxW(nullptr, message.c_str(), L"BLACK - Save Data Error", MB_OK | MB_ICONERROR);
+    const std::wstring title = native_dialogs::Text(native_dialogs::TextId::SaveDataErrorTitle);
+    MessageBoxW(nullptr, message.c_str(), title.c_str(), MB_OK | MB_ICONERROR);
     return {};
 }
 
 enum class RecoveryChoice { RestoreVerifiedCopy, StartFresh, Cancel };
 
 RecoveryChoice AskRecovery(const fs::path& damaged_hdd, const std::vector<fs::path>& verified_older_hdds) {
-    std::wstring message = L"Save data could not be safely loaded:\n" + damaged_hdd.wstring() + L"\n\n" +
-                           L"The original files will be preserved before starting a new profile.\n\n";
+    const std::wstring message = native_dialogs::SaveRecoveryMessage(damaged_hdd, verified_older_hdds);
     UINT flags = MB_YESNOCANCEL | MB_ICONWARNING | MB_DEFBUTTON3;
     if (verified_older_hdds.size() == 1) {
-        message += L"Yes: restore a readable older save with valid structure and checksums.\n";
-        message += L"No: preserve the damaged HDD as a backup and start a new game.\n";
-        message += L"Cancel: exit without changing any save.";
-        const std::wstring older = L"\n\nOlder save copy: " + verified_older_hdds.front().wstring();
-        message += older;
-        const int answer = MessageBoxW(nullptr, message.c_str(), L"BLACK - Save Recovery", flags);
+        const std::wstring title = native_dialogs::Text(native_dialogs::TextId::SaveRecoveryTitle);
+        const int answer = MessageBoxW(nullptr, message.c_str(), title.c_str(), flags);
         if (answer == IDYES) return RecoveryChoice::RestoreVerifiedCopy;
         if (answer == IDNO) return RecoveryChoice::StartFresh;
         return RecoveryChoice::Cancel;
     }
 
-    message += L"Yes: preserve this save and start a new game.\nNo or Cancel: exit without changing saves.";
-    if (!verified_older_hdds.empty()) {
-        message += L"\n\nMore than one readable older save exists, so the game will not guess which one to restore:";
-        for (const fs::path& older : verified_older_hdds) message += L"\n" + older.wstring();
-    } else {
-        message += L"\n\nNo readable older copy passed the structural checks. Progress from this damaged save cannot be safely reconstructed.";
-    }
-    const int answer = MessageBoxW(nullptr, message.c_str(), L"BLACK - Save Recovery", flags);
+    const std::wstring title = native_dialogs::Text(native_dialogs::TextId::SaveRecoveryTitle);
+    const int answer = MessageBoxW(nullptr, message.c_str(), title.c_str(), flags);
     return answer == IDYES ? RecoveryChoice::StartFresh : RecoveryChoice::Cancel;
 }
 
@@ -247,17 +238,17 @@ bool StartFresh(const fs::path& target, bool preserve_target, std::string& error
 
 fs::path PrepareSaveDataDirectory(const fs::path& exe_dir, int instance) {
     const fs::path app_root = LocalDataRoot();
-    if (app_root.empty()) return Fail(L"Windows could not locate your local save-data folder. See the game log for details.",
+    if (app_root.empty()) return Fail(native_dialogs::Text(native_dialogs::TextId::SavePathUnavailable),
                                       "SHGetKnownFolderPath(FOLDERID_LocalAppData) failed.");
     const fs::path target = app_root / (instance > 1 ? L"hdd" + std::to_wstring(instance) : L"hdd");
     std::error_code ec;
     fs::create_directories(app_root, ec);
-    if (ec) return Fail(L"The save-data folder could not be created. No game save was changed. See the game log.",
+    if (ec) return Fail(native_dialogs::Text(native_dialogs::TextId::SaveDirectoryCreateFailed),
                         "Could not create " + app_root.string() + ": " + ec.message());
 
     const bool target_exists = fs::exists(target, ec);
     if (ec)
-        return Fail(L"The existing save folder could not be checked. The game was stopped to protect your save.",
+        return Fail(native_dialogs::Text(native_dialogs::TextId::SaveFolderCheckFailed),
                     "Could not inspect " + target.string() + ": " + ec.message());
     const bool has_stable_profile = target_exists && HasProfile(target);
     bool stable_hdd_invalid = false;
@@ -294,7 +285,7 @@ fs::path PrepareSaveDataDirectory(const fs::path& exe_dir, int instance) {
         if (!reason.empty()) LOGE("save: recovery reason: %s", reason.c_str());
         const RecoveryChoice choice = AskRecovery(problem_path, verified_legacy);
         if (choice == RecoveryChoice::Cancel)
-            return Fail(L"Save recovery was cancelled. Existing files were left unchanged.", "User cancelled save recovery.");
+            return Fail(native_dialogs::Text(native_dialogs::TextId::SaveRecoveryCancelled), "User cancelled save recovery.");
         if (choice == RecoveryChoice::RestoreVerifiedCopy && verified_legacy.size() == 1) {
             use_legacy = true;
             start_fresh = false;
@@ -312,7 +303,7 @@ fs::path PrepareSaveDataDirectory(const fs::path& exe_dir, int instance) {
             displaced_target = UniqueSibling(target, L".preserved.");
             fs::rename(target, displaced_target, ec);
             if (ec)
-                return Fail(L"The existing save folder could not be preserved before importing the older save. The game was stopped.",
+                return Fail(native_dialogs::Text(native_dialogs::TextId::SaveRestoreFailed),
                             "Could not preserve " + target.string() + " as " + displaced_target.string() + ": " + ec.message());
             LOGW("save: existing HDD was preserved at %ls before importing a verified older copy", displaced_target.c_str());
         }
@@ -323,18 +314,18 @@ fs::path PrepareSaveDataDirectory(const fs::path& exe_dir, int instance) {
                 fs::rename(displaced_target, target, restore_error);
                 if (restore_error) error += "; also could not restore preserved HDD " + displaced_target.string() + ": " + restore_error.message();
             }
-            return Fail(L"The older save could not be safely restored. The game was stopped; original save copies remain in place. See the log.",
+            return Fail(native_dialogs::Text(native_dialogs::TextId::SaveRestoreFailed),
                         error);
         }
     } else if (start_fresh) {
         std::string error;
         if (!StartFresh(target, backup_stable_target, error))
-            return Fail(L"A new save could not be safely initialized. No original save was intentionally deleted. See the log.", error);
+            return Fail(native_dialogs::Text(native_dialogs::TextId::SaveInitializationFailed), error);
     }
 
     std::string error;
     if (!save_storage::VerifyReadable(target, error))
-        return Fail(L"The save HDD failed its read check. The game was stopped to protect your data.", error);
+        return Fail(native_dialogs::Text(native_dialogs::TextId::SaveReadFailed), error);
     return target;
 }
 

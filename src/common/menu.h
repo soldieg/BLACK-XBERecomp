@@ -12,12 +12,10 @@ void SetModalInputCaptured(bool captured);
 bool Capturing();  // a key binding waits for a key
 void ToggleMenu();
 void DrawUi(double fps);
-void SetSubtitleSettingsPreview(bool visible);  // game options page asks DrawUi to show the styled sample
 inline constexpr uint32_t kFpsCapRefresh = 1;  // Settings::fps_cap: just under the monitor's refresh rate
 void PaceFrame();  // app::Pace, with kFpsCapRefresh; game thread, after the present
 // the game menus' cursor (HCURSOR): cursor.png beside the exe sized to the frame, else the system arrow
 void* CursorImage();
-
 // the panel's rows, for the game's own options menu
 namespace rows {
 
