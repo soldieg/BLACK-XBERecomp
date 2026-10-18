@@ -1,7 +1,8 @@
-// Recomp settings in the game's own options menus: RECOMP SETTINGS and MOUSE AND KEYBOARD buttons under the stock ones
-// load the page again with the F10 panel's rows in their place. A row is two copies of a stock button clip, its name
-// and its value; the name's copy stands in for the script's button object, so the script moves the focus and the
-// cursor works. The pause menu's options have room for one button, its rows start with the panel's PAGE row.
+// Recomp settings in the game's own options menus: RECOMP SETTINGS, MOUSE AND KEYBOARD and CONTROLLER buttons under
+// the stock ones load the page again with the F10 panel's rows in their place. A row is two copies of a stock button
+// clip, its name and its value; the name's copy stands in for the script's button object, so the script moves the
+// focus and the cursor works. On the pause menu's options our buttons take the prompts' rows: the select prompt goes,
+// copies of the confirm and back prompts sit side by side below.
 #include <algorithm>
 #include <cstdio>
 #include <cstring>
@@ -47,7 +48,7 @@ constexpr int kEntries = kMainMenuEntries;
 constexpr int kSlots = 8;
 constexpr int kDepth = 100;
 constexpr int kEscape = 0x1B;
-const Row kPageRow{app::rows::Kind::Value, -1, "PAGE"};
+constexpr int kPrompts = 2;
 
 // the selection bar, Main.ButtonSelector: its parts by depth; once shown it stops on frame 10, its data's frame 9
 constexpr int kBarRest = 9;
@@ -81,27 +82,33 @@ struct Host {
     float drop;
     const char* first;         // the first and last button objects of its ring
     const char* last;
-    int entries;               // our buttons; one opens every page
+    int entries;               // main menu links, or one PAGE link in the pause menu
     // the rows, from the stock button
     float pitch;
     float name_x;
     float value_x;
     float scale;
-    const char* hint;          // the string of a prompt our button takes the place of
+    const char* hint;          // the string of a prompt our buttons take the place of
     const char* stock[14];     // what the rows take the place of
     Bar bar;
+    // prompts our buttons push down, copied in a row below them: x of each and y, from the stock clip
+    const char* prompts[kPrompts];
+    float prompt_x[kPrompts];
+    float prompt_y;
 };
 constexpr Host kHosts[] = {
     {"OptionsMenuXbox", "TextAnim", "_level4.Main.TextAnim.ControllerSetup_Text", "Playerprofile_Text", 25.0f,
      "controllerButton", "Playerprofile", kMainMenuEntries, 25.0f, -37.0f, 185.0f, 0.9f, nullptr,
      {"ControllerSetup_Text", "SoundSetup_Text", "PictureSetup_Text", "Playerprofile_Text"},
-     {1.0f, 245.0f, 445.0f, -5.0f}},
+     {1.0f, 245.0f, 445.0f, -5.0f}, {}, {}, 0.0f},
     {"PauseMenuOptionXbox", nullptr, "_level4.Main.ToggleCrouch", "ToggleCrouch", 222.0f,
      "toggleCrouchButton", "musicVolumeButton", 1, 27.0f, 0.0f, 245.0f, 1.0f, "$FE_SELECT",
      {"ToggleCrouch", "ToggleCrouchOn_Text", "ToggleCrouchOff_Text", "InvertLook", "InvertLookOn_Text",
       "InvertLookOff_Text", "Vibration", "VibrationOn_Text", "VibrationOff_Text", "SFXVolume", "Sound_Volume",
       "MusicVolume", "Music_Volume"},
-     {1.4f, 343.55f, 443.55f, 168.35f}},
+     {1.4f, 343.55f, 443.55f, 168.35f},
+     // stage y 458 under the third button's bar (to 441), the screen ends at 480
+     {"_level4.Main.ConfirmPrompt", "_level4.Main.BackPrompt"}, {-16.0f, 164.0f}, 306.0f},
 };
 
 // a text the page shows from here: its string id, the text, the data of the field showing it
@@ -122,6 +129,7 @@ struct Page {
     uint32_t lead = 0;   // the stock clip ours keep their places from
     uint32_t language_lead = 0;  // the first stock option, above which the language entry sits
     uint32_t entry[kEntries] = {};
+    uint32_t prompt[kPrompts] = {};
     uint32_t name[kSlots] = {};
     uint32_t value[kSlots] = {};
     uint32_t preview_background = 0;
@@ -209,6 +217,7 @@ void Follow(X86Context& ctx, const Page& p) {
             follow(p.entry[i], p.lead, 0.0f, h.drop + h.pitch * float(row));
         }
     }
+    for (int i = 0; i < kPrompts; i++) follow(p.prompt[i], p.lead, h.prompt_x[i], h.prompt_y);
     for (int i = 0; i < kSlots; i++) {
         follow(p.name[i], p.lead, h.name_x, h.pitch * float(i));
         if (p.preview_background && p.pinned_row && i == int(p.slots) - 1 &&
@@ -232,6 +241,20 @@ void Sound(X86Context& ctx) {
     CallGuest(ctx, flash::kCall, {Text("PlayChangeSound"), 0, 0});
 }
 
+// the prompts our buttons push down: each hidden, a copy in its place below
+bool MovePrompts(X86Context& ctx, uint32_t holder) {
+    Page& p = g_page;
+    for (int i = 0; i < kPrompts; i++) {
+        const char* from = p.host->prompts[i];
+        if (!from) continue;
+        char name[16];
+        std::snprintf(name, sizeof(name), "RC_P%d", i);
+        if (!(p.prompt[i] = Copy(ctx, holder, from, name, kDepth + kEntries + i))) return false;
+        Hide(Member(ctx, holder, std::strrchr(from, '.') + 1));
+    }
+    return true;
+}
+
 // our buttons under the stock ones, in their ring
 bool Entries(X86Context& ctx, uint32_t root, uint32_t holder) {
     Page& p = g_page;
@@ -248,9 +271,10 @@ bool Entries(X86Context& ctx, uint32_t root, uint32_t holder) {
         char name[16];
         std::snprintf(name, sizeof(name), "RC_E%d", i);
         if (!(p.entry[i] = Copy(ctx, holder, name, kDepth + i))) return false;
-        const char* caption = h.entries == kMainMenuEntries ? (i == 0 ? kLanguageCaption : kCaptions[i - 1]) : kCaptions[i];
+        const char* caption = h.entries == kMainMenuEntries ? (i == 0 ? kLanguageCaption : kCaptions[i - 1]) : kCaptions[0];
         if (!Show(ctx, kEntry + i, p.entry[i], nullptr, app::Ui(caption).c_str())) return false;
     }
+    if (!MovePrompts(ctx, holder)) return false;
     p.first = p.entry[0];
     Follow(ctx, p);
     CallGuest(ctx, flash::kRunActions, {R32(flash::kPlayer)});
@@ -262,7 +286,8 @@ bool Entries(X86Context& ctx, uint32_t root, uint32_t holder) {
         // Preserve the original order, inserting LANGUAGE before Control Setup.
         Link(ctx, above, p.entry[1]);
         Link(ctx, p.entry[1], p.entry[2]);
-        Link(ctx, p.entry[2], p.entry[0]);
+        Link(ctx, p.entry[2], p.entry[3]);
+        Link(ctx, p.entry[3], p.entry[0]);
         Link(ctx, p.entry[0], top);
     } else {
         for (int i = 0; i < h.entries; i++) {
@@ -350,9 +375,9 @@ bool Rows(X86Context& ctx, uint32_t root, uint32_t holder, uint32_t menu) {
     for (size_t i = 0; i < p.slots; i++) {
         char name[16];
         std::snprintf(name, sizeof(name), "RC_N%d", int(i));
-        p.name[i] = Copy(ctx, holder, name, kDepth + int(i));
+        p.name[i] = Copy(ctx, holder, h.button, name, kDepth + int(i));
         name[3] = 'V';
-        p.value[i] = Copy(ctx, holder, name, kDepth + kSlots + int(i));
+        p.value[i] = Copy(ctx, holder, h.button, name, kDepth + kSlots + int(i));
         if (!p.name[i] || !p.value[i]) return false;
         for (uint32_t clip : {p.name[i], p.value[i]}) {
             G<float>(clip + flash::kClipScaleX) = h.scale;
