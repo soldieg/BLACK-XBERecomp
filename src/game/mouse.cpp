@@ -24,6 +24,7 @@ using flash::Type;
 
 // degrees a count at sensitivity 1
 constexpr float kDegrees = 0.05f;
+constexpr float kHalfRadians = 3.14159265f / 360.0f;  // degrees to radians of half the angle
 
 // the player's controller: yaw positive left, pitch positive down, in degrees
 constexpr uint32_t kControllerYaw = 0x18;
@@ -42,15 +43,28 @@ static float g_mouse_pitch_step;
 static float g_mouse_sway_horizontal;
 static float g_mouse_sway_vertical;
 
-// esi the player's controller, xmm2 the zoom scale. The game adds the stick, clamps the pitch and wraps the yaw
-// after this.
+// camera: the view's degrees, as FieldOfView leaves them
+constexpr uint32_t kCamera = 0x2D12B8;
+constexpr uint32_t kCameraFov = 0x750;
+
+// the view's tangent over that of the view from the hip: a count turns the same share of the view zoomed or not
+float ViewZoom() {
+    uint32_t camera = R32(kCamera);
+    float fov = camera ? G<float>(camera + kCameraFov) : 0.0f;
+    if (!(fov > 0 && fov < 180)) return 1.0f;
+    float hip = float(std::clamp(game::Opt().fov, 45u, 140u));  // the range FieldOfView takes
+    return std::tan(fov * kHalfRadians) / std::tan(hip * kHalfRadians);
+}
+
+
+// esi the player's controller. The game adds the stick, clamps the pitch and wraps the yaw after this.
 void MouseLook(X86Context& ctx, uint8_t*) {
     g_mouse_yaw_step = 0;
     g_mouse_pitch_step = 0;
     float dx;
     float dy;
     if (!input::TakeMouse(dx, dy)) return;
-    float scale = kDegrees * ctx.xmm[2].f[0];
+    float scale = kDegrees * ViewZoom();
     g_mouse_yaw_step = -std::remainder(dx * scale, 360.0f);
     g_mouse_pitch_step = dy * scale;
     G<float>(ctx.esi + kControllerYaw) += g_mouse_yaw_step;
@@ -90,9 +104,17 @@ void MouseSway(X86Context& ctx, uint8_t*) {
 // false with the keyboard or mouse used last: no pull of the view to a target, no shots bent to one
 bool AimAssist(X86Context&, uint8_t*) { return !input::KeyboardActive(); }
 
+// the look update: xmm3 the stick's yaw speed, xmm0 its pitch speed, before the zoom scale and frame time
+void StickLook(X86Context& ctx, uint8_t*) {
+    if (input::KeyboardActive()) return;
+    ctx.xmm[3].f[0] *= game::Opt().controller_sensitivity;
+    ctx.xmm[0].f[0] *= game::Opt().controller_sensitivity;
+}
+
 // ebx the player's controller past the game's toggle aim, scopes and all
 void HoldAim(X86Context& ctx, uint8_t*) {
-    if (!game::Opt().hold_aim || !input::KeyboardActive()) return;
+    bool hold = input::KeyboardActive() ? game::Opt().hold_aim : game::Opt().controller_hold_aim;
+    if (!hold) return;
     G<uint8_t>(ctx.ebx + kControllerAimWanted) = G<uint8_t>(ctx.ebx + kControllerAimHeld);
 }
 

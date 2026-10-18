@@ -274,7 +274,7 @@ void Changed(bool display) {
 enum RowId { kDisplayMode, kResolution, kRenderResolution, kMaxFps, kVsync, kFpsCounter, kAniso, kReloadBlur,
              kSkipIntros, kSensitivity, kInvertMouse, kWalkSpeed, kFov, kViewmodelFov, kHoldAim, kDrawDistance, kMsaa,
              kAmbientOcclusion, kAudioOutput, kHdrOutput, kMonitor, kLanguage, kSmaa,
-             kPauseOnFocusLoss, kFmvScale };
+             kPauseOnFocusLoss, kFmvScale, kControllerHoldAim, kControllerSensitivity, kRumbleIntensity, kMenuAnimations };
 constexpr int kLanguageChoiceBase = 1000;
 constexpr int kSubtitlesEnabled = 900, kSubtitleSettings = 901, kSubtitleSize = 902,
               kSubtitleBold = 903, kSubtitleColor = 904, kSubtitleShadow = 905, kSubtitlePreview = 906,
@@ -282,7 +282,6 @@ constexpr int kSubtitlesEnabled = 900, kSubtitleSettings = 901, kSubtitleSize = 
 constexpr uint32_t kSubtitleSizes[] = {80, 90, 100, 110, 120, 130, 140, 150, 160};
 constexpr const char* kSubtitleColors[] = {"WHITE", "YELLOW"};
 constexpr const char* kSubtitleShadows[] = {"OFF", "SUBTLE", "STRONG"};
-
 using rows::Kind;
 using rows::Row;
 
@@ -308,6 +307,7 @@ constexpr Row kSettingsRows[] = {
     {Kind::Value, kReloadBlur, "RELOAD BLUR"},
     {Kind::Heading, -1, "GENERAL"},
     {Kind::Value, kSkipIntros, "SKIP INTROS"},
+    {Kind::Value, kMenuAnimations, "MENU ANIMATIONS"},
     {Kind::Value, kPauseOnFocusLoss, "PAUSE ON FOCUS LOSS"},
     {Kind::Value, kLanguage, "LANGUAGE"},
     {Kind::Value, kAudioOutput, "AUDIO OUTPUT"},
@@ -329,6 +329,13 @@ const std::vector<Row>& InputRows() {
     return list;
 }
 
+constexpr Row kControllerRows[] = {
+    {Kind::Heading, -1, "CONTROLLER"},
+    {Kind::Value, kControllerHoldAim, "HOLD TO AIM"},
+    {Kind::Value, kControllerSensitivity, "SENSITIVITY"},
+    {Kind::Value, kRumbleIntensity, "RUMBLE INTENSITY"},
+};
+
 // the setting an ON / OFF row flips, nullptr for any other row
 bool* ToggleFlag(Settings& s, int id) {
     game::Options& o = game::Opt();
@@ -339,9 +346,11 @@ bool* ToggleFlag(Settings& s, int id) {
         case kReloadBlur: return &o.reload_blur;
         case kSmaa: return &o.smaa;
         case kSkipIntros: return &o.skip_intros;
+        case kMenuAnimations: return &o.menu_animations;
         case kPauseOnFocusLoss: return &o.pause_on_focus_loss;
         case kInvertMouse: return &o.invert_mouse;
         case kHoldAim: return &o.hold_aim;
+        case kControllerHoldAim: return &o.controller_hold_aim;
         default: return nullptr;
     }
 }
@@ -398,9 +407,9 @@ Mode StepResolution(Settings& s, int step) {
     return m;
 }
 
-// both field of view rows: 45 to 100 in steps of 1, 70 the game's own
+// both field of view rows: 45 to 140 in steps of 1, 70 the game's own
 constexpr int kFovMin = 45;
-constexpr int kFovMax = 100;
+constexpr int kFovMax = 140;
 constexpr uint32_t kGameFov = 70;
 
 void FovText(uint32_t fov, char (&text)[64]) {
@@ -498,7 +507,16 @@ bool StepGraphicsRow(int id, int step, Settings& s, char (&text)[64]) {
     }
 }
 
-// the general, mouse and keyboard rows that are no ON / OFF, stepped first
+// both sensitivity rows: 0.1 to 5.0 in steps of 0.1
+void StepSensitivity(float& value, int step, char (&text)[64]) {
+    if (step) {
+        int tenths = StepRange(int(std::lround(value * 10.0f)), 1, 50, 1, step);
+        value = float(tenths) / 10.0f;
+    }
+    std::snprintf(text, sizeof(text), "%.1f", value);
+}
+
+// the general, mouse and keyboard and controller rows that are no ON / OFF, stepped first
 void StepInputRow(int id, int step, char (&text)[64]) {
     game::Options& o = game::Opt();
     switch (id) {
@@ -506,12 +524,15 @@ void StepInputRow(int id, int step, char (&text)[64]) {
             std::snprintf(text, sizeof(text), "%s", kAudioOutputNames[StepTable(kAudioOutputs, o.audio_output, step)]);
             break;
         case kSensitivity:
-            // 0.1 to 5.0 in steps of 0.1
-            if (step) {
-                int tenths = StepRange(int(std::lround(o.mouse_sensitivity * 10.0f)), 1, 50, 1, step);
-                o.mouse_sensitivity = float(tenths) / 10.0f;
-            }
-            std::snprintf(text, sizeof(text), "%.1f", o.mouse_sensitivity);
+            StepSensitivity(o.mouse_sensitivity, step, text);
+            break;
+        case kControllerSensitivity:
+            StepSensitivity(o.controller_sensitivity, step, text);
+            break;
+        case kRumbleIntensity:
+            // 10% to 200% in steps of 10
+            if (step) o.rumble_intensity = uint32_t(StepRange(int(o.rumble_intensity), 10, 200, 10, step));
+            std::snprintf(text, sizeof(text), "%u%%", o.rumble_intensity);
             break;
         case kWalkSpeed:
             // 10% to 100% in steps of 5
@@ -561,13 +582,21 @@ std::string KeyText(std::string keys) {
     return keys;
 }
 
-const char* const kPages[] = {"RECOMP SETTINGS", "MOUSE AND KEYBOARD", "WEAPONS"};
+const char* const kPages[] = {"RECOMP SETTINGS", "MOUSE AND KEYBOARD", "CONTROLLER", "WEAPONS"};
 constexpr int kSettingsPage = 0;
 constexpr int kKeyboardPage = 1;
-constexpr int kWeaponsPage = 2;  // weapons.cpp: any weapon in any level
+constexpr int kControllerPage = 2;
+constexpr int kWeaponsPage = 3;  // weapons.cpp: any weapon in any level
 
 void RestoreDefaults(int page) {
     game::Options& o = game::Opt();
+    if (page == kControllerPage) {
+        o.controller_hold_aim = false;
+        o.controller_sensitivity = game::Options{}.controller_sensitivity;
+        o.rumble_intensity = game::Options{}.rumble_intensity;
+        Save();
+        return;
+    }
     if (page == kKeyboardPage) {
         o.mouse_sensitivity = game::Options{}.mouse_sensitivity;
         o.invert_mouse = false;
@@ -583,6 +612,9 @@ void RestoreDefaults(int page) {
     o.invert_mouse = keep.invert_mouse;
     o.hold_aim = keep.hold_aim;
     o.walk_speed = keep.walk_speed;
+    o.controller_hold_aim = keep.controller_hold_aim;
+    o.controller_sensitivity = keep.controller_sensitivity;
+    o.rumble_intensity = keep.rumble_intensity;
     o.keys = keep.keys;
     Changed(true);
 }
@@ -906,6 +938,10 @@ const rows::Row* rows::Page(int page, size_t* count) {
     if (page == kKeyboardPage) {
         *count = InputRows().size();
         return InputRows().data();
+    }
+    if (page == kControllerPage) {
+        *count = std::size(kControllerRows);
+        return kControllerRows;
     }
     static const std::vector<Row> rows = [] {
         std::vector<Row> out(std::begin(kSettingsRows), std::end(kSettingsRows));

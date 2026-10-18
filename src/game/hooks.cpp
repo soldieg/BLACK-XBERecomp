@@ -179,7 +179,7 @@ constexpr float kHalf = 3.14159265f / 360.0f;
 
 // tangent of a setting's half angle over that of the game's 70 degrees
 static float Widen(uint32_t degrees) {
-    return std::tan(std::clamp(degrees, 45u, 100u) * kHalf) / std::tan(70 * kHalf);
+    return std::tan(std::clamp(degrees, 45u, 140u) * kHalf) / std::tan(70 * kHalf);
 }
 
 static float g_gun = 1.0f;  // the gun's picture over the view's
@@ -291,6 +291,9 @@ void SwayEnd(X86Context&, uint8_t*) {
     for (int i = 0; i < 2; i++) G<float>(g_sway + i * 4) = g_sway_share[i];
     g_sway = 0;
 }
+
+// The player's move speed eases to the stick's by at most a fixed step a frame: the step of a frame at 30
+void MoveEase(X86Context& ctx, uint8_t*) { ctx.xmm[1].f[0] *= FrameShare(); }
 
 static float Dt() { return G<float>(R32(kWorld) + kTimerDt); }
 
@@ -496,6 +499,16 @@ X86_FUNC(sub_001690D0) {
     __imp__sub_001690D0(ctx, base);
 }
 bool ShardTick(X86Context&, uint8_t*) { return g_shard_tick; }
+
+// The sound manager counts its glass shard sound slots (0x2AB27C) and four timers down once a call, made for 30 calls
+// a second: they count once a game frame, or shard sounds pile up at high frame rates
+bool SoundCountdownTick(X86Context&, uint8_t*) {
+    static float ticks;
+    ticks += FrameShare();
+    if (ticks < 1) return false;
+    ticks -= 1;
+    return true;
+}
 
 // xmm1 the gain of a shard's turn a frame
 void ShardSpinGain(X86Context& ctx, uint8_t*) { ctx.xmm[1].f[0] *= FrameShare(); }
