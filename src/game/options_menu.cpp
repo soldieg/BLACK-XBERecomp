@@ -38,11 +38,12 @@ using flash::Text;
 namespace {
 
 constexpr uint32_t kHashTable = 0x2AC908;
-const char* const kCaptions[] = {"RECOMP SETTINGS", "MOUSE AND KEYBOARD"};
+const char* const kCaptions[] = {"RECOMP SETTINGS", "MOUSE AND KEYBOARD", "CONTROLLER"};
 constexpr const char* kLanguageCaption = "LANGUAGE";
 constexpr const char* kSubtitleSettingsCaption = "SUBTITLE SETTINGS";
-constexpr int kSubtitleSettingsMode = 4;
-constexpr int kEntries = 3;
+constexpr int kMainMenuEntries = int(std::size(kCaptions)) + 1;
+constexpr int kSubtitleSettingsMode = kMainMenuEntries + 1;
+constexpr int kEntries = kMainMenuEntries;
 constexpr int kSlots = 8;
 constexpr int kDepth = 100;
 constexpr int kEscape = 0x1B;
@@ -80,7 +81,7 @@ struct Host {
     float drop;
     const char* first;         // the first and last button objects of its ring
     const char* last;
-    int entries;               // our buttons; one opens both pages
+    int entries;               // our buttons; one opens every page
     // the rows, from the stock button
     float pitch;
     float name_x;
@@ -92,7 +93,7 @@ struct Host {
 };
 constexpr Host kHosts[] = {
     {"OptionsMenuXbox", "TextAnim", "_level4.Main.TextAnim.ControllerSetup_Text", "Playerprofile_Text", 25.0f,
-     "controllerButton", "Playerprofile", 3, 25.0f, -37.0f, 185.0f, 0.9f, nullptr,
+     "controllerButton", "Playerprofile", kMainMenuEntries, 25.0f, -37.0f, 185.0f, 0.9f, nullptr,
      {"ControllerSetup_Text", "SoundSetup_Text", "PictureSetup_Text", "Playerprofile_Text"},
      {1.0f, 245.0f, 445.0f, -5.0f}},
     {"PauseMenuOptionXbox", nullptr, "_level4.Main.ToggleCrouch", "ToggleCrouch", 222.0f,
@@ -200,10 +201,10 @@ void Follow(X86Context& ctx, const Page& p) {
         std::memcpy(HostPtr(clip + flash::kClipColours), HostPtr(anchor + flash::kClipColours), flash::kColoursSize);
     };
     for (int i = 0; i < h.entries; i++) {
-        if (h.entries == 3 && i == 0) {
+        if (h.entries == kMainMenuEntries && i == 0) {
             follow(p.entry[i], p.language_lead, 0.0f, -h.pitch);
         } else {
-            int row = i - (h.entries == 3 ? 1 : 0);
+            int row = i - (h.entries == kMainMenuEntries ? 1 : 0);
             follow(p.entry[i], p.lead, 0.0f, h.drop + h.pitch * float(row));
         }
     }
@@ -238,7 +239,7 @@ bool Entries(X86Context& ctx, uint32_t root, uint32_t holder) {
     uint32_t above = Member(ctx, root, h.last);
     p.lead = Member(ctx, holder, h.under);
     if (!top || !above || !flash::IsClip(p.lead)) return false;
-    if (h.entries == 3) {
+    if (h.entries == kMainMenuEntries) {
         p.language_lead = Member(ctx, holder, "ControllerSetup_Text");
         if (!flash::IsClip(p.language_lead)) return false;
     }
@@ -246,7 +247,7 @@ bool Entries(X86Context& ctx, uint32_t root, uint32_t holder) {
         char name[16];
         std::snprintf(name, sizeof(name), "RC_E%d", i);
         if (!(p.entry[i] = Copy(ctx, holder, name, kDepth + i))) return false;
-        const char* caption = h.entries == 3 ? (i == 0 ? kLanguageCaption : kCaptions[i - 1]) : kCaptions[i];
+        const char* caption = h.entries == kMainMenuEntries ? (i == 0 ? kLanguageCaption : kCaptions[i - 1]) : kCaptions[i];
         if (!Show(ctx, kEntry + i, p.entry[i], nullptr, app::Ui(caption).c_str())) return false;
     }
     p.first = p.entry[0];
@@ -256,7 +257,7 @@ bool Entries(X86Context& ctx, uint32_t root, uint32_t holder) {
         if (!Button(ctx, p.entry[i], top)) return false;
         if (!Set(ctx, p.entry[i], "actionSelectPage", String(ctx, h.page))) return false;
     }
-    if (h.entries == 3) {
+    if (h.entries == kMainMenuEntries) {
         // Preserve the original order, inserting LANGUAGE before Control Setup.
         Link(ctx, above, p.entry[1]);
         Link(ctx, p.entry[1], p.entry[2]);
@@ -281,7 +282,7 @@ void Fill(Page& p) {
     p.pinned_row = nullptr;
     if (p.host->entries == 1) p.rows.push_back(&kPageRow);
     size_t count = 0;
-    const bool main_menu = p.host->entries == 3;
+    const bool main_menu = p.host->entries == kMainMenuEntries;
     const bool language_page = main_menu && p.mode == 1;
     const bool subtitle_settings_page = main_menu && p.mode == kSubtitleSettingsMode;
     if (subtitle_settings_page) {
@@ -378,7 +379,7 @@ std::string ValueText(const Page& p, const Row* row, size_t index) {
 }
 
 const char* PageCaption(const Page& p) {
-    if (p.host->entries == 3) {
+    if (p.host->entries == kMainMenuEntries) {
         if (p.mode == 1) return kLanguageCaption;
         if (p.mode == kSubtitleSettingsMode) return kSubtitleSettingsCaption;
         return kCaptions[p.mode - 2];
@@ -523,7 +524,7 @@ void Build(X86Context& ctx, const Host& host, uint32_t root, uint32_t holder, ui
     const char* shown = p.mode ? PageCaption(p) : "buttons";
     LOGI("options menu: %s, %s%s", host.page, shown, p.failed ? ", failed" : "");
     if (!p.failed && !p.mode && g_last) Focus(ctx, p.entry[std::min(g_last, host.entries) - 1]);
-    else if (!p.failed && !p.mode && host.entries == 3) Focus(ctx, p.entry[0]);
+    else if (!p.failed && !p.mode && host.entries == kMainMenuEntries) Focus(ctx, p.entry[0]);
     g_last = p.mode;
 }
 
@@ -586,7 +587,9 @@ void ApplyRowInput(X86Context& ctx, size_t slot, uint32_t id, bool locked) {
         RefreshRows(ctx, p);
         Focus(ctx, p.name[0]);
     } else if (row == &kPageRow && changes) {
-        p.mode = 3 - p.mode;
+        int step = id == kInputLeft ? -1 : 1;
+        constexpr int kPageModes = int(std::size(kCaptions));
+        p.mode = (p.mode - 1 + step + kPageModes) % kPageModes + 1;
         Fill(p);
     } else if (value && changes) {
         if (!locked) app::rows::Value(*row, id == kInputLeft ? -1 : 1);
@@ -598,7 +601,7 @@ void ApplyRowInput(X86Context& ctx, size_t slot, uint32_t id, bool locked) {
             p.bind = p.top + slot;
         }
     } else if (id == kInputConfirm && !row) {
-        app::rows::Defaults(p.host->entries == 3 ? p.mode - 2 : p.mode - 1);
+        app::rows::Defaults(p.host->entries == kMainMenuEntries ? p.mode - 2 : p.mode - 1);
     }
 }
 

@@ -48,7 +48,7 @@ This repository is a community-maintained fork of [TGP482/BLACK-XBERecomp](https
 
 ### Input
 - **Mouse and Keyboard** - Full keyboard and mouse support with raw input, adjustable sensitivity, inverted look and rebindable controls.
-- **Controller** - Controller with SDL3 support. 
+- **Controller** - Controller with SDL3 support and additional features.
 
 ### Audio
 - **XAudio2 Output Queue** - Uses a deeper audio output queue to help reduce crackling.

@@ -25,7 +25,7 @@ struct Row {
     int id;  // a bind row's input action
     const char* label;
 };
-const Row* Page(int page, size_t* count);         // 0 the settings, 1 mouse and keyboard
+const Row* Page(int page, size_t* count);         // 0 settings, 1 mouse and keyboard, 2 controller
 const Row* Language();                            // the language selector, including on English-only discs
 const Row* Languages(size_t* count);               // one selectable row per supported language
 const Row* SubtitleSettings(size_t* count);        // subtitle controls followed by the fixed size summary
