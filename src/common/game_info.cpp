@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <filesystem>
 #include <iterator>
@@ -188,15 +189,37 @@ bool Message(void* hwnd, uint32_t msg, uintptr_t wp, intptr_t lp, intptr_t* resu
     return false;
 }
 
+// Ignore controller trigger pressure until each trigger has reported its released state once.
+void UpdateTriggerRest(int port, input::Pad& pad) {
+    constexpr uint8_t kReleased = 0x20;
+    constexpr int kLeftTrigger = 6;
+    static std::atomic<uint8_t> rested[4]{};
+    static std::atomic<bool> logged{};
+    if (port < 0 || port > 3) return;
+    if (!pad.connected) {
+        rested[port] = 0;
+        return;
+    }
+    for (int t = 0; t < 2; t++) {
+        uint8_t& value = pad.analog[kLeftTrigger + t];
+        const uint8_t bit = uint8_t(1u << t);
+        if (value <= kReleased) rested[port] |= bit;
+        if (rested[port] & bit) continue;
+        if (!logged.exchange(true)) LOGR("input: controller %d trigger pressed before a release, ignored", port + 1);
+        value = 0;
+    }
+}
+
 // port 0 has the keyboard; the game sees no input while the panel is open
 void Pad(int port, input::Pad& pad) {
+    UpdateTriggerRest(port, pad);
+    input::SeenPad(pad);
     if (port == 0) pad.connected = true;
     if (app::MenuOpen() || app::ModalInputCaptured()) {
         pad = input::Pad{.connected = pad.connected};
         if (port == 0) input::Keyboard(pad);  // mark held keys for release before gameplay resumes
         return;
     }
-    input::SeenPad(pad);
     if (port == 0) input::Keyboard(pad);
 }
 
