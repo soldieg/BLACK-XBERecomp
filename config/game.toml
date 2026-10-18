@@ -508,6 +508,10 @@ at = 0x1BD6A8
 call = "MouseLook"
 
 [[hook]]
+at = 0x1ECF76
+call = "MouseSway"
+
+[[hook]]
 at = 0x1ECE64
 call = "AimAssist"
 on_false = 0x1ECF48
