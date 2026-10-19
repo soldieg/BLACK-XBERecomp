@@ -30,7 +30,7 @@ struct Options {
     std::string language = "int";  // one of kLanguages
     bool subtitles_enabled = true;
     uint32_t subtitle_size = 120;  // percent, 80 to 160
-    bool subtitle_bold = true;
+    bool subtitle_bold = false;
     uint32_t subtitle_color = 0;  // 0 white, 1 yellow
     uint32_t subtitle_shadow = 1;  // 0 off, 1 subtle, 2 strong
     bool subtitle_background = true;
@@ -39,6 +39,7 @@ struct Options {
     bool smaa = false;  // over the finished frame, HUD included; combines with msaa
     bool pause_on_focus_loss = true;  // the game and its sound stop while the window is in the background
     bool controller_hold_aim = false;  // scopes too; off is the game's own, held to aim and scopes toggled
+    bool aim_assist = true;  // retain the game's controller aim assist unless disabled by the player
     float controller_sensitivity = 1.0f;  // times the game's right stick look speeds
     uint32_t rumble_intensity = 100;  // percent of the game's vibration
     bool menu_animations = true;  // off: menu pages and the pause menu change without sliding in and out
@@ -48,6 +49,8 @@ Options& Opt();
 // the language setting as this run started, the language the game boots in
 const std::string& BootLanguage();
 bool HasLanguages();  // language.cpp
+// One-shot first-run handoff: true after the auto-detected locale package is downloaded.
+bool TakeAutomaticLocaleRestartReady();
 inline std::atomic<float> g_fps{0};  // from the host, for the game's own counter
 inline std::atomic<bool> g_hdr_display{false};  // the window's display has Windows HDR on, from the renderer
 inline std::atomic<bool> g_hide_hud{false};  // the toggle HUD key: the gameplay HUD is not drawn

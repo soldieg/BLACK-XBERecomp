@@ -30,6 +30,8 @@ namespace game {
 namespace {
 
 bool g_language_detection_done = false;
+bool g_system_locale_matches_selection = false;
+std::atomic<bool> g_auto_locale_restart_pending{false};
 
 std::vector<std::string> SystemUiLocales() {
     ULONG languages = 0, chars = 0;
@@ -100,18 +102,25 @@ void DetectSystemLanguage(bool first_language_setup) {
         if (!detected.empty()) {
             o.language = detected;
             o.unsupported_language_prompted = true;
+            g_system_locale_matches_selection = detected != "int";
         } else if (!locale.empty()) {
             o.language = "int";
             o.unsupported_language_prompted = false;
             o.unsupported_system_locale = locale;
         }
-    } else if (!o.unsupported_language_prompted) {
+    } else {
         const std::vector<std::string> locales = SystemUiLocales();
         const auto supported = std::find_if(locales.begin(), locales.end(), [](const std::string& locale) {
             return !SupportedLanguage(locale).empty();
         });
-        if (supported == locales.end() && !locales.empty()) o.unsupported_system_locale = locales.front();
-        else o.unsupported_language_prompted = true;
+        const std::string detected = supported == locales.end() ? std::string{} : SupportedLanguage(*supported);
+        // Keep an explicit saved language choice. If it matches Windows, though,
+        // a changed package can be applied automatically after its download.
+        g_system_locale_matches_selection = detected != "int" && !detected.empty() && detected == o.language;
+        if (!o.unsupported_language_prompted) {
+            if (supported == locales.end() && !locales.empty()) o.unsupported_system_locale = locales.front();
+            else o.unsupported_language_prompted = true;
+        }
     }
     app::SetModalInputCaptured(!o.unsupported_system_locale.empty());
     g_language_detection_done = true;
@@ -238,6 +247,8 @@ void Init() {
     std::filesystem::create_directories(app::ExeDir() / "language", ec);
     if (ec) LOGW("language: could not create language folder: %s", ec.message().c_str());
     app::Save();  // persist first-run locale detection and create a settings file if needed
+    if (g_system_locale_matches_selection)
+        g_auto_locale_restart_pending.store(true, std::memory_order_release);
     app::RequestLanguageDownload(Opt().language);  // ensure the saved language is cached beside BLACK.exe
     input::LoadBindings();
     audio::SetOutputMode(Opt().audio_output);
@@ -280,6 +291,18 @@ void Save(void* table) {
 
 }  // namespace
 
+bool TakeAutomaticLocaleRestartReady() {
+    if (!g_auto_locale_restart_pending.load(std::memory_order_acquire)) return false;
+    const std::string status = app::LanguageDownloadStatus(BootLanguage());
+    if (status == "FILES READY") {
+        g_auto_locale_restart_pending.store(false, std::memory_order_release);
+        return false;
+    }
+    if (status != "FILES UPDATED") return false;
+    g_auto_locale_restart_pending.store(false, std::memory_order_release);
+    return true;
+}
+
 Options& Opt() {
     static Options o;
     return o;
@@ -319,6 +342,7 @@ const app::GameInfo app::kGame = {
                 {"viewmodel_fov", nullptr, &game::Opt().viewmodel_fov},
                 {"audio_output", nullptr, &game::Opt().audio_output},
                 {"controller_hold_aim", &game::Opt().controller_hold_aim, nullptr},
+                {"aim_assist", &game::Opt().aim_assist, nullptr},
                 {"rumble_intensity", nullptr, &game::Opt().rumble_intensity},
                 {"menu_animations", &game::Opt().menu_animations, nullptr}},
     .load = game::Load,

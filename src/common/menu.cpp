@@ -274,7 +274,8 @@ void Changed(bool display) {
 enum RowId { kDisplayMode, kResolution, kRenderResolution, kMaxFps, kVsync, kFpsCounter, kAniso, kReloadBlur,
              kSkipIntros, kSensitivity, kInvertMouse, kWalkSpeed, kFov, kViewmodelFov, kHoldAim, kDrawDistance, kMsaa,
              kAmbientOcclusion, kAudioOutput, kHdrOutput, kMonitor, kLanguage, kSmaa,
-             kPauseOnFocusLoss, kFmvScale, kControllerHoldAim, kControllerSensitivity, kRumbleIntensity, kMenuAnimations };
+             kPauseOnFocusLoss, kFmvScale, kControllerHoldAim, kAimAssist, kControllerSensitivity, kRumbleIntensity,
+             kMenuAnimations };
 constexpr int kLanguageChoiceBase = 1000;
 constexpr int kSubtitlesEnabled = 900, kSubtitleSettings = 901, kSubtitleSize = 902,
               kSubtitleBold = 903, kSubtitleColor = 904, kSubtitleShadow = 905, kSubtitlePreview = 906,
@@ -332,6 +333,7 @@ const std::vector<Row>& InputRows() {
 constexpr Row kControllerRows[] = {
     {Kind::Heading, -1, "CONTROLLER"},
     {Kind::Value, kControllerHoldAim, "HOLD TO AIM"},
+    {Kind::Value, kAimAssist, "AIM ASSIST"},
     {Kind::Value, kControllerSensitivity, "SENSITIVITY"},
     {Kind::Value, kRumbleIntensity, "RUMBLE INTENSITY"},
 };
@@ -351,6 +353,7 @@ bool* ToggleFlag(Settings& s, int id) {
         case kInvertMouse: return &o.invert_mouse;
         case kHoldAim: return &o.hold_aim;
         case kControllerHoldAim: return &o.controller_hold_aim;
+        case kAimAssist: return &o.aim_assist;
         default: return nullptr;
     }
 }
@@ -592,6 +595,7 @@ void RestoreDefaults(int page) {
     game::Options& o = game::Opt();
     if (page == kControllerPage) {
         o.controller_hold_aim = false;
+        o.aim_assist = game::Options{}.aim_assist;
         o.controller_sensitivity = game::Options{}.controller_sensitivity;
         o.rumble_intensity = game::Options{}.rumble_intensity;
         Save();
@@ -613,6 +617,7 @@ void RestoreDefaults(int page) {
     o.hold_aim = keep.hold_aim;
     o.walk_speed = keep.walk_speed;
     o.controller_hold_aim = keep.controller_hold_aim;
+    o.aim_assist = keep.aim_assist;
     o.controller_sensitivity = keep.controller_sensitivity;
     o.rumble_intensity = keep.rumble_intensity;
     o.keys = keep.keys;
@@ -1034,11 +1039,15 @@ std::string rows::Value(const Row& row, int step) {
         static const char* const marks[] = {"int", "fra", "deu", "ita", "esp", "pt-BR", "id", "ru"};
         if (step == 1) {
             g_language_candidate = marks[i];
+            // Selecting one locale starts only that locale's manifest package;
+            // the all-language action remains an optional separate command.
             if (game::Opt().language != marks[i]) {
+                RequestLanguageDownload(g_language_candidate);
                 g_confirm_language_restart = true;
                     RefreshModalInputCapture();
             } else {
-                g_package_repair_requested = false;
+                g_package_repair_requested = LanguagePackageStatus(g_language_candidate) != "READY";
+                if (g_package_repair_requested) RequestLanguageDownload(g_language_candidate);
                 g_show_package_details = true;
                     RefreshModalInputCapture();
             }
@@ -1074,6 +1083,11 @@ void ToggleMenu() {
 }
 
 void DrawUi(double fps) {
+    if (game::TakeAutomaticLocaleRestartReady()) {
+        LOGR("language: first-run Windows locale package is ready; restarting to load its fonts and subtitles");
+        kernel::Relaunch("BLACK");
+        return;
+    }
     game::g_fps = float(fps);
     ImGuiIO& io = ImGui::GetIO();
     if (MenuOpen()) io.ConfigFlags &= ~ImGuiConfigFlags_NoMouseCursorChange;
@@ -1099,7 +1113,8 @@ void DrawUi(double fps) {
             const bool active = status == "QUEUED..." || status == "DOWNLOADING...";
             if (active) {
                 ImGui::TextUnformatted(Ui("Download in progress.").c_str());
-            } else if (g_package_repair_requested && (status == "FILES READY" || status == "READY - RESTART")) {
+            } else if (g_package_repair_requested &&
+                       (status == "FILES UPDATED" || status == "FILES READY" || status == "READY - RESTART")) {
                 if (ImGui::Button(Ui("Restart now").c_str())) {
                     g_show_package_details = false;
                     g_package_repair_requested = false;
@@ -1172,17 +1187,22 @@ void DrawUi(double fps) {
                 const std::string details = LanguagePackageDetails(g_language_candidate);
                 ImGui::TextWrapped("%s", Ui(details, false).c_str());
                 ImGui::EndChild();
+                const std::string download_status = LanguageDownloadStatus(g_language_candidate);
+                const bool downloading = download_status == "QUEUED..." || download_status == "DOWNLOADING...";
+                if (downloading) ImGui::TextUnformatted(Ui("This language is downloading individually.").c_str());
                 if (ImGui::Button("Restart now")) {
                     g_language_previous = game::Opt().language;
                     game::Opt().language = g_language_candidate;
                     app::Save();
-                    RequestLanguageDownload(g_language_candidate);
+                    if (!downloading && download_status != "READY - RESTART" &&
+                        download_status != "FILES READY" && download_status != "FILES UPDATED")
+                        RequestLanguageDownload(g_language_candidate);
                     g_language_restart_waiting = true;
                 }
                 ImGui::SetItemDefaultFocus();
             } else {
                 const std::string status = LanguageDownloadStatus(g_language_candidate);
-                if (status == "READY - RESTART" || status == "FILES READY") {
+                if (status == "READY - RESTART" || status == "FILES READY" || status == "FILES UPDATED") {
                     LOGR("language: %s package ready; restarting", g_language_candidate.c_str());
                     g_confirm_language_restart = false;
                     g_language_restart_waiting = false;

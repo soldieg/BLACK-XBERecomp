@@ -14,6 +14,7 @@
 #include "common/aspect.h"
 #include "common/mouse_keyboard.h"
 #include "common/options.h"
+#include "common/subtitle_layout.h"
 #include "common/subtitles.h"
 #include "common/translations.h"
 #include "core/log.h"
@@ -63,6 +64,7 @@ constexpr float kTickGap = 10.0f;  // past the end of the widest value
 // the rows' font, as the name entry's caret measures it
 constexpr uint32_t kFindFont = 0x13CD0;   // stdcall (game object, name): a font
 constexpr uint32_t kFontName = 0x28E63C;  // "Eurostile LT Std"
+constexpr uint32_t kCaptionFont = 0x2F433C;  // the game's Small.bin font, also used for cutscene subtitles
 constexpr float kTextHeight = 15.0f;      // the stock buttons' text fields
 constexpr float kTextLeft = 2.0f;         // the text field in its button's label clip
 
@@ -470,6 +472,21 @@ float Measure(uint32_t font, const std::string& text) {
     return G<float>(font + kFontScale) * end;
 }
 
+// Match the actual subtitle renderer's advance calculation. Using the menu's
+// Eurostile font here made the preview backing box disagree with Small.bin.
+float MeasureCaption(uint32_t font, const std::string& text, float host_scale) {
+    if (!font) return 0.0f;
+    float advance = 0.0f;
+    const std::string& language = game::BootLanguage();
+    const bool portuguese = language == "pt-BR" || language == "pt" || language == "por";
+    for (uint16_t code : Codes(text)) {
+        code = subtitles::DisplayGlyph(code, portuguese);
+        advance += G<float>(Glyph(font, code) + kGlyphAdvance);
+    }
+    return advance * G<float>(font + kFontScale) * kTextHeight *
+           float(game::Opt().subtitle_size) / 100.0f * host_scale;
+}
+
 // how far right of the focused name the widest value of the page ends, the label clip scaled as it lights
 float Reach(X86Context& ctx, const Page& p, uint32_t focus) {
     const Host& h = *p.host;
@@ -696,39 +713,57 @@ void UpdateTexts(const Page& p) {
 void UpdateSubtitlePreview(X86Context& ctx, Page& p) {
     if (p.mode != kSubtitleSettingsMode || !p.pinned_row || !p.slots) {
         Hide(p.preview_background);
+        app::SetSubtitlePreview({}, 0.0f, 0.0f, false);
         return;
     }
     const uint32_t root = flash::Level(flash::kMenuLevel);
     const uint32_t main = Member(ctx, root, "Main");
     const uint32_t font = CallGuest(ctx, kFindFont, {R32(kGame), kFontName});
     const uint32_t background = p.preview_background;
-    if (!main || !font || !background) {
+    if (!main || !font) {
         Hide(background);
+        app::SetSubtitlePreview({}, 0.0f, 0.0f, false);
         return;
     }
 
     const std::string label = app::Ui(p.pinned_row->label);
     const size_t r = label.find('R');
     const std::string before_r = r == std::string::npos ? std::string{} : label.substr(0, r);
-    const std::string sample = app::Ui("Subtitle test", false);
+    // One small in-game-font sample directly below the PREVIEW row.
+    const std::string sample(subtitles::PreviewSample());
     const float size = float(game::Opt().subtitle_size) / 100.0f;
-    const float text_width = Measure(font, sample) * kTextHeight * size * p.host->scale;
+    const uint32_t caption_font = R32(kCaptionFont);
+    float text_width = 0.0f;
+    size_t line_count = 0;
+    for (size_t start = 0; start <= sample.size();) {
+        const size_t end = sample.find('\n', start);
+        const std::string line = sample.substr(start, end == std::string::npos ? end : end - start);
+        text_width = std::max(text_width, caption_font
+            ? MeasureCaption(caption_font, line, p.host->scale)
+            : Measure(font, line) * kTextHeight * size * p.host->scale);
+        ++line_count;
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
     const float pad_x = 8.0f * p.host->scale, pad_y = 4.0f * p.host->scale;
     const float box_width = std::max(1.0f, p.host->bar.tick - kBarLeft);
 
     uint32_t box = 0;
-    for (uint32_t part = flash::FirstChild(background); part; part = R32(part + flash::kClipNext)) {
-        if (flash::Depth(part) == kBarBox) {
-            box = part;
-            break;
+    if (background) {
+        for (uint32_t part = flash::FirstChild(background); part; part = R32(part + flash::kClipNext)) {
+            if (flash::Depth(part) == kBarBox) {
+                box = part;
+                break;
+            }
         }
     }
     if (!box) {
         Hide(background);
-        return;
+    } else {
+        G<float>(box + flash::kClipScaleX) = (text_width + pad_x * 2.0f) / box_width;
+        G<float>(box + flash::kClipScaleY) =
+            (kTextHeight * size * line_count * 1.35f * p.host->scale + pad_y * 2.0f) / p.host->pitch;
     }
-    G<float>(box + flash::kClipScaleX) = (text_width + pad_x * 2.0f) / box_width;
-    G<float>(box + flash::kClipScaleY) = (kTextHeight * size * p.host->scale + pad_y * 2.0f) / p.host->pitch;
 
     // Keep the backing selector in Main-local space, matching the menu's own row coordinates.
     float x = kTextLeft + Measure(font, before_r) * kTextHeight;
@@ -742,12 +777,14 @@ void UpdateSubtitlePreview(X86Context& ctx, Page& p) {
         y = b * x + d * y + ty;
         x = transformed_x;
     }
-    G<float>(background + flash::kClipScaleX) = 1.0f;
-    G<float>(background + flash::kClipScaleY) = 1.0f;
-    G<float>(background + 0x10) = 0.0f;
-    G<float>(background + 0x14) = 0.0f;
-    G<float>(background + flash::kClipX) = x - pad_x - kBarLeft;
-    G<float>(background + flash::kClipY) = y - pad_y;
+    if (background && box) {
+        G<float>(background + flash::kClipScaleX) = 1.0f;
+        G<float>(background + flash::kClipScaleY) = 1.0f;
+        G<float>(background + 0x10) = 0.0f;
+        G<float>(background + 0x14) = 0.0f;
+        G<float>(background + flash::kClipX) = x - pad_x - kBarLeft;
+        G<float>(background + flash::kClipY) = y - pad_y;
+    }
     // Native captions use viewport coordinates based on a 480-line frame. Continue through Main
     // and the remaining Flash ancestors, then convert the 640x480 stage's X to that basis.
     float screen_x = x, screen_y = y;
@@ -760,12 +797,15 @@ void UpdateSubtitlePreview(X86Context& ctx, Page& p) {
         screen_x = transformed_x;
     }
     screen_x *= game::Aspect() * 480.0f / 640.0f;
-    app::SetSubtitlePreview(app::Ui("Subtitle test", false), screen_x, screen_y, true);
+    app::SetSubtitlePreview(sample, screen_x, screen_y, true);
     G<float>(p.value[p.slots - 1] + flash::kClipScaleX) = p.host->scale * size;
     G<float>(p.value[p.slots - 1] + flash::kClipScaleY) = p.host->scale * size;
-    if (!game::Opt().subtitle_background) Hide(box);
-    else W32(box + flash::kClipFlags, R32(box + flash::kClipFlags) | flash::kClipShown);
-    W32(background + flash::kClipFlags, R32(background + flash::kClipFlags) | flash::kClipShown);
+    if (box) {
+        if (!game::Opt().subtitle_background) Hide(box);
+        else W32(box + flash::kClipFlags, R32(box + flash::kClipFlags) | flash::kClipShown);
+    }
+    if (background && box)
+        W32(background + flash::kClipFlags, R32(background + flash::kClipFlags) | flash::kClipShown);
 }
 
 void Tick(X86Context& ctx, uint32_t ui) {

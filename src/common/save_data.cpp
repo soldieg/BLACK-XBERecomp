@@ -39,32 +39,10 @@ bool IsHddFolder(const fs::path& path) {
 }
 
 std::vector<fs::path> FindProfiles(const fs::path& hdd) {
-    const fs::path title = hdd / L"E" / L"UDATA" / L"45410083";
-    std::error_code ec;
     std::vector<fs::path> profiles;
-    if (!fs::is_directory(title, ec)) {
-        if (ec) profiles.push_back(title / L"Profile");
-        return profiles;
-    }
-    fs::directory_iterator user(title, ec), end;
-    if (ec) {
-        profiles.push_back(title / L"Profile");
-        return profiles;
-    }
-    for (; user != end; user.increment(ec)) {
-        if (ec) {
-            profiles.push_back(title / L"Profile");
-            break;
-        }
-        std::error_code entry_error;
-        if (!user->is_directory(entry_error)) {
-            if (entry_error) profiles.push_back(user->path() / L"Profile");
-            continue;
-        }
-        const fs::path profile = user->path() / L"Profile";
-        const fs::file_status status = fs::symlink_status(profile, entry_error);
-        if (entry_error || fs::is_regular_file(status) || fs::is_symlink(status)) profiles.push_back(profile);
-    }
+    std::string error;
+    save_storage::FindProfileFiles(hdd, profiles, error);
+    if (!error.empty()) profiles.push_back(hdd / L"E" / L"UDATA" / L"45410083" / L"Profile");
     return profiles;
 }
 
@@ -126,6 +104,27 @@ std::vector<fs::path> FindLegacyHdds(const fs::path& exe_dir, int instance) {
             }
         }
         it.increment(ec);
+    }
+    return candidates;
+}
+
+std::vector<fs::path> FindPreservedAppDataHdds(const fs::path& app_root, const fs::path& active_hdd) {
+    std::vector<fs::path> candidates;
+    std::error_code ec;
+    fs::directory_iterator it(app_root, ec), end;
+    if (ec) return candidates;
+
+    const std::wstring prefix = active_hdd.filename().wstring();
+    for (; it != end; it.increment(ec)) {
+        if (ec) break;
+        const std::wstring name = Lower(it->path().filename().wstring());
+        const std::wstring lower_prefix = Lower(prefix);
+        if (name.rfind(lower_prefix + L".preserved.", 0) != 0 &&
+            name.rfind(lower_prefix + L".corrupt-backup.", 0) != 0)
+            continue;
+        std::error_code entry_error;
+        if (it->is_directory(entry_error) && !entry_error && HasProfile(it->path()))
+            candidates.push_back(it->path());
     }
     return candidates;
 }
@@ -265,7 +264,10 @@ fs::path PrepareSaveDataDirectory(const fs::path& exe_dir, int instance) {
         }
     }
 
-    const std::vector<fs::path> legacy = FindLegacyHdds(exe_dir, instance);
+    std::vector<fs::path> legacy = FindLegacyHdds(exe_dir, instance);
+    const std::vector<fs::path> app_data_backups = FindPreservedAppDataHdds(app_root, target);
+    for (const fs::path& backup : app_data_backups)
+        if (std::find(legacy.begin(), legacy.end(), backup) == legacy.end()) legacy.push_back(backup);
     std::string rejected_legacy;
     const std::vector<fs::path> verified_legacy = RecoverableLegacyHdds(legacy, rejected_legacy);
     if (stable_hdd_invalid) LOGE("save: current HDD failed the read/profile check: %s", stable_hdd_problem.c_str());

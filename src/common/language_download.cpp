@@ -413,13 +413,13 @@ bool FetchManifest(Json& manifest, std::string& revision, std::string& error) {
     return false;
 }
 
-bool Install(const std::string& language, std::string& error) {
+bool Install(const std::string& language, std::string& error, bool* changed = nullptr) {
     const std::string locale = LocaleFolder(language);
     if (locale.empty()) { error = "The selected language is not supported by the manifest"; return false; }
     Json manifest;
     std::string revision;
     if (!FetchManifest(manifest, revision, error)) return false;
-    return InstallLocale(manifest, app::ExeDir() / "language", locale, revision, error);
+    return InstallLocale(manifest, app::ExeDir() / "language", locale, revision, error, nullptr, changed);
 }
 
 bool UpdateAllLocales(std::string& result, std::string& error) {
@@ -490,11 +490,14 @@ void Worker() {
         lock.unlock();
         LOGR("language download: starting package check for %s", language.c_str());
         std::string error;
-        const bool ok = Install(language, error);
+        bool changed = false;
+        const bool ok = Install(language, error, &changed);
         if (ok) LOGR("language download: %s package is ready", LocaleFolder(language).c_str());
         else LOGR("language download: %s failed: %s", language.c_str(), error.c_str());
         lock.lock();
-        state.status[language] = ok ? (language == game::BootLanguage() ? "FILES READY" : "READY - RESTART")
+        state.status[language] = ok ? (language == game::BootLanguage()
+                                           ? (changed ? "FILES UPDATED" : "FILES READY")
+                                           : "READY - RESTART")
                                    : "DOWNLOAD FAILED (SEE LOG)";
         state.package_status.clear();
         state.package_details.clear();

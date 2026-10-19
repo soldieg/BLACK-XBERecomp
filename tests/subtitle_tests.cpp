@@ -34,6 +34,14 @@ void DecodesUtf8ForTheGameFont() {
     Check(text == expected, "UTF-8 caption becomes native font code points");
 }
 
+void PortugueseMissingTildeGlyphUsesUmlautFallback() {
+    Check(subtitles::DisplayGlyph(0x00E3, true) == 0x00E4, "Portuguese ã uses the available ä glyph");
+    Check(subtitles::DisplayGlyph(0x00C3, true) == 0x00C4, "Portuguese Ã uses the available Ä glyph");
+    Check(subtitles::DisplayGlyph(0x00F5, true) == 0x00F6, "Portuguese õ uses the available ö glyph");
+    Check(subtitles::DisplayGlyph(0x00D5, true) == 0x00D6, "Portuguese Õ uses the available Ö glyph");
+    Check(subtitles::DisplayGlyph(0x00E3, false) == 0x00E3, "other locales keep the original glyph");
+}
+
 void RejectsInvalidCueRangesAndTimestamps() {
     const std::string srt =
         "1\n00:00:02,000 --> 00:00:01,000\nreversed\n\n"
@@ -79,14 +87,22 @@ void PreviewAnchorIncludesMenuAndStageTransforms() {
     Check(screen.x == 350.0f && screen.y == 162.0f,
           "preview point under R is transformed from its menu row through Main to the stage");
 }
+
+void SubtitlePresentationHelpersUseOneCompactPreviewAndLogicalCentering() {
+    Check(subtitles::PreviewSample() == "Prévia da legenda", "preview contains only its short caption sample");
+    Check(subtitles::CenteredCaptionX(960.0f, 400.0f) == 280.0f,
+          "caption centers using logical width before widescreen glyph scaling");
+}
 }  // namespace
 
 int main() {
     ParsesBomCrLfAndMultilineCues();
     DecodesUtf8ForTheGameFont();
+    PortugueseMissingTildeGlyphUsesUmlautFallback();
     RejectsInvalidCueRangesAndTimestamps();
     SelectsCueWithHalfOpenTimeRange();
     MovieSessionClockDoesNotRestartWhilePolling();
     PreviewAnchorIncludesMenuAndStageTransforms();
+    SubtitlePresentationHelpersUseOneCompactPreviewAndLogicalCentering();
     return failures ? 1 : 0;
 }

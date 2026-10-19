@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <string>
+#include <vector>
 
 namespace game::save_storage {
 
@@ -17,5 +18,10 @@ bool VerifyReadable(const std::filesystem::path& root, std::string& error);
 // Validate the proven Profile layout and per-slot additive checksums without
 // changing bytes or claiming to authenticate the game's final signature.
 bool ValidateProfile(const std::filesystem::path& profile, std::string& error);
+
+// Enumerate profile files under the title's UDATA folder. Missing user Profile
+// files are normal and are not treated as unreadable saves.
+bool FindProfileFiles(const std::filesystem::path& hdd, std::vector<std::filesystem::path>& profiles,
+                      std::string& error);
 
 }  // namespace game::save_storage

@@ -1285,6 +1285,45 @@ void Walk(uint32_t end) {
 }  // namespace
 }  // namespace d3d
 
+namespace d3d { void DrawSolidRect(float left, float top, float right, float bottom, uint8_t alpha); }
+
+// A small pre-transformed diffuse quad for native overlays such as subtitle backplates.
+// Draw through the active backend and restore the game's full state immediately afterward.
+void d3d::DrawSolidRect(float left, float top, float right, float bottom, uint8_t alpha) {
+    if (!(right > left) || !(bottom > top)) return;
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    if (!g_backend) return;
+
+    struct Vertex { float x, y, z, rhw; uint32_t colour; };
+    const uint32_t colour = (uint32_t(alpha) << 24);
+    const Vertex vertices[] = {
+        {left, top, 0.0f, 1.0f, colour}, {right, top, 0.0f, 1.0f, colour},
+        {left, bottom, 0.0f, 1.0f, colour}, {right, bottom, 0.0f, 1.0f, colour},
+    };
+
+    const gpu::State saved = g_state;
+    g_state.vs_handle = 0x44;  // XYZRHW | DIFFUSE
+    g_state.vs.reset();
+    g_state.ps.reset();
+    g_state.textures.fill(0);
+    g_state.scissor_count = 0;
+    g_state.rs[gpu::kRsZEnable] = 0;
+    g_state.rs[gpu::kRsStencilEnable] = 0;
+    g_state.simple[gpu::kMBlendEnable / 4] = 1;
+    g_state.simple[gpu::kMSrcBlend / 4] = 5;   // SRCALPHA
+    g_state.simple[gpu::kMDestBlend / 4] = 6;  // INVSRCALPHA
+    g_state.simple[gpu::kMBlendOp / 4] = 1;     // ADD
+    g_state.simple[gpu::kMZWriteEnable / 4] = 0;
+    for (uint32_t stage = 0; stage < g_state.tss.size(); ++stage) {
+        g_state.tss[stage][gpu::kTssColorOp] = stage ? 1 : 2; // disable later stages; select arg1 on stage 0
+        g_state.tss[stage][gpu::kTssAlphaOp] = stage ? 1 : 2;
+        g_state.tss[stage][gpu::kTssColorArg1] = 0; // diffuse
+        g_state.tss[stage][gpu::kTssAlphaArg1] = 0;
+    }
+    DrawUp(5, 4, vertices, sizeof(Vertex)); // triangle strip
+    g_state = saved;
+}
+
 HLE_STDCALL(D3DDevice_DrawVerticesUP, 4) {
     std::lock_guard<std::recursive_mutex> lock(g_lock);
     DrawUp(a[0], a[1], HostPtr(a[2]), a[3]);
